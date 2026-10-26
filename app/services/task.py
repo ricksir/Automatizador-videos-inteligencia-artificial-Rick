@@ -28,6 +28,8 @@ from app.services import (
     muapi,
     ofox,
     rick_quality,
+    rick_scene_plan,
+    rick_scene_assignment,
     sonilo,
     subtitle,
     task_artifacts,
@@ -1004,6 +1006,61 @@ def _identify_task_materials(task_id, video_paths):
     return media_diversity.identify_materials(video_paths, records)
 
 
+def _record_rick_scene_candidate_preview(
+    task_id, params, video_script, video_terms, audio_duration, downloaded_videos
+):
+    """Save an offline, non-binding scene-to-stock candidate preview.
+
+    This step never changes the paths/ordering sent to the video renderer.
+    It is intentionally limited to existing stock search providers with
+    script-order matching enabled, and never starts a search/API request.
+    """
+    if not getattr(params, "match_materials_to_script", False):
+        return
+    if getattr(params, "video_source", None) not in {"pixabay", "pexels", "coverr"}:
+        return
+    try:
+        terms = (
+            video_terms if isinstance(video_terms, list)
+            else re.split(r"[,，]", video_terms) if isinstance(video_terms, str)
+            else []
+        )
+        plan = rick_scene_plan.build_scene_plan(
+            video_script,
+            terms,
+            audio_duration,
+            target_clip_seconds=params.video_clip_duration,
+        )
+        with open(path.join(utils.task_dir(task_id), "script.json"), encoding="utf-8") as fh:
+            records = json.load(fh).get("material_sources", [])
+        if not isinstance(records, list):
+            records = []
+        candidate_preview = rick_scene_assignment.assign_scene_candidates(
+            plan,
+            records,
+            available_files=downloaded_videos,
+        )
+        task_artifacts.patch_script_data(
+            task_id,
+            rick_scene_plan=plan,
+            rick_scene_candidate_preview=candidate_preview,
+        )
+        logger.info(
+            "Rick scene preview: scenes=%d, matched=%d, missing=%d; "
+            "preview only (does not drive final rendering)",
+            candidate_preview["scene_count"],
+            candidate_preview["scenes_with_term_candidate"],
+            candidate_preview["scenes_without_term_candidate"],
+        )
+    except Exception as exc:
+        # A diagnostic preview must never cause a previously working video
+        # generation run to fail. No secrets or full signed URLs in logs.
+        logger.warning(
+            "Rick scene candidate preview unavailable: error_type=%s",
+            type(exc).__name__,
+        )
+
+
 def _record_empty_material_diversity(task_id, audio_duration):
     _, report = media_diversity.plan_timeline([], audio_duration, {})
     task_artifacts.patch_script_data(task_id, media_diversity=[report])
@@ -1918,6 +1975,10 @@ def _run_pipeline(
             "materials",
             "failed to prepare video materials",
         )
+
+    _record_rick_scene_candidate_preview(
+        task_id, params, video_script, video_terms, audio_duration, downloaded_videos
+    )
 
     if stop_at == "materials":
         sm.state.update_task(
