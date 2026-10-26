@@ -20,7 +20,7 @@ RICK_STARTUP_DEFAULTS = {
         "avoid_repeated_materials": True,
         "video_language": "pt-BR",
         "video_concat_mode": "sequential",
-        "video_transition_mode": "None",
+        "video_transition_mode": None,
         "video_aspect_pixabay": "9:16",
         "video_fit_mode": "cover",
         "video_clip_duration": 4,
