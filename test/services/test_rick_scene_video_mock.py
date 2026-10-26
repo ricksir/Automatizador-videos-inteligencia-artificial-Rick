@@ -99,6 +99,7 @@ class TestSceneRendererWithFakeMedia(unittest.TestCase):
             "random": random,
             "itertools": itertools,
             "logger": Mock(),
+            "fps": 30,
             "ThreadPoolExecutor": ThreadPoolExecutor,
             "logging_utils": types.SimpleNamespace(bind_log_scope=lambda fn: fn),
             "AudioFileClip": lambda filename: Clip(8),
