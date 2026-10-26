@@ -120,6 +120,7 @@ class VideoParams(BaseModel):
     video_clip_duration: int = Field(default=5, ge=1)
     video_clip_speed: Optional[float] = 1.0
     match_materials_to_script: bool = False
+    avoid_repeated_materials: bool = False
     video_count: int = Field(default=1, ge=1)
 
     video_source: Optional[str] = "pexels"
