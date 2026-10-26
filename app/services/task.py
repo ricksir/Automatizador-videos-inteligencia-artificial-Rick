@@ -26,6 +26,7 @@ from app.services import (
     metaso_minimax,
     muapi,
     ofox,
+    rick_quality,
     sonilo,
     subtitle,
     task_artifacts,
@@ -360,12 +361,17 @@ def generate_script(task_id, params):
     logger.info("\n\n## generating video script")
     video_script = params.video_script.strip()
     if not video_script:
+        profile_options = (
+            {"rick_profile_enabled": True}
+            if getattr(params, "rick_profile_enabled", False) else {}
+        )
         video_script = llm.generate_script(
             video_subject=params.video_subject,
             language=params.video_language,
             paragraph_number=params.paragraph_number,
             video_script_prompt=params.video_script_prompt,
             custom_system_prompt=params.custom_system_prompt,
+            **profile_options,
         )
     else:
         logger.debug(f"video script: \n{video_script}")
@@ -422,12 +428,14 @@ def generate_terms(task_id, params, video_script):
     return video_terms
 
 
-def save_script_data(task_id, video_script, video_terms, params):
+def save_script_data(task_id, video_script, video_terms, params, *, rick_diagnostics=None):
     script_data = {
         "script": video_script,
         "search_terms": video_terms,
         "params": params,
     }
+    if rick_diagnostics is not None:
+        script_data["rick_quality"] = rick_diagnostics
     task_artifacts.write_script_data(task_id, script_data)
 
 
@@ -1540,6 +1548,7 @@ def _run_pipeline(
         task_id, state=const.TASK_STATE_PROCESSING, progress=5,
         failed_stage=None, error=None,
         videos=[], combined_videos=[], warnings=None, failed_video_index=None,
+        rick_quality=None,
     )
 
     if stop_at == "video" and params.subtitle_enabled:
@@ -1691,13 +1700,27 @@ def _run_pipeline(
         )
         return _mark_task_failed(task_id, "script", error)
 
+    quality_fields = {}
+    if getattr(params, "rick_profile_enabled", False):
+        estimate = rick_quality.estimate_script_duration(video_script)
+        quality_fields["rick_quality"] = {"script_estimate": estimate.to_dict()}
+        save_script_data(task_id, video_script, "", params,
+                         rick_diagnostics=quality_fields["rick_quality"])
+        sm.state.update_task(task_id, progress=10, script=video_script, **quality_fields)
+        logger.info(estimate.message)
+        if estimate.code == "invalid_script":
+            return _mark_task_failed(
+                task_id, "rick_script_quality", estimate.message,
+                details={"script": video_script, **quality_fields},
+            )
+
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=10)
 
     if stop_at == "script":
         sm.state.update_task(
             task_id, state=const.TASK_STATE_COMPLETE, progress=100, script=video_script
         )
-        return {"script": video_script}
+        return {"script": video_script, **quality_fields}
 
     # 2. Generate terms
     video_terms = ""
@@ -1710,13 +1733,16 @@ def _run_pipeline(
                 "failed to generate video search terms",
             )
 
-    save_script_data(task_id, video_script, video_terms, params)
+    save_options = (
+        {"rick_diagnostics": quality_fields["rick_quality"]} if quality_fields else {}
+    )
+    save_script_data(task_id, video_script, video_terms, params, **save_options)
 
     if stop_at == "terms":
         sm.state.update_task(
             task_id, state=const.TASK_STATE_COMPLETE, progress=100, terms=video_terms
         )
-        return {"script": video_script, "terms": video_terms}
+        return {"script": video_script, "terms": video_terms, **quality_fields}
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=20)
 
@@ -1742,6 +1768,35 @@ def _run_pipeline(
             "audio",
             "failed to prepare narration audio",
         )
+
+    if quality_fields:
+        # Read the actual file again: generate_audio's legacy result may be ceil'd
+        # or derived from a reusable preview. Neither can approve Rick's timing.
+        try:
+            measured_duration = voice.get_audio_duration(audio_file)
+        except Exception:
+            measured_duration = None
+        diagnostic = rick_quality.validate_audio_duration(measured_duration)
+        quality_fields["rick_quality"].update(
+            audio_duration=diagnostic.to_dict(), audio_file=audio_file,
+        )
+        save_script_data(task_id, video_script, video_terms, params,
+                         rick_diagnostics=quality_fields["rick_quality"])
+        sm.state.update_task(
+            task_id, progress=30, audio_file=audio_file, audio_duration=diagnostic.seconds,
+            **quality_fields,
+        )
+        logger.info(diagnostic.message)
+        if not diagnostic.approved:
+            return _mark_task_failed(
+                task_id, "rick_audio_quality", diagnostic.message,
+                details={
+                    "script": video_script, "terms": video_terms,
+                    "audio_file": audio_file, "audio_duration": diagnostic.seconds,
+                    **quality_fields,
+                },
+            )
+        audio_duration = diagnostic.seconds
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=30)
 
@@ -1772,7 +1827,7 @@ def _run_pipeline(
             progress=100,
             audio_file=audio_file,
         )
-        return {"audio_file": audio_file, "audio_duration": audio_duration}
+        return {"audio_file": audio_file, "audio_duration": audio_duration, **quality_fields}
 
     # 4. Generate subtitle
     subtitle_path = generate_subtitle(
@@ -1792,7 +1847,7 @@ def _run_pipeline(
             progress=100,
             subtitle_path=subtitle_path,
         )
-        return {"subtitle_path": subtitle_path}
+        return {"subtitle_path": subtitle_path, **quality_fields}
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=40)
 
@@ -1818,7 +1873,7 @@ def _run_pipeline(
             progress=100,
             materials=downloaded_videos,
         )
-        return {"materials": downloaded_videos}
+        return {"materials": downloaded_videos, **quality_fields}
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=50)
 
@@ -1892,6 +1947,7 @@ def _run_pipeline(
         "cross_post_error": None,
         "cross_post_owner": _cross_post_process_owner if should_cross_post else None,
         "warnings": generation_warnings or None,
+        **quality_fields,
     }
     sm.state.update_task(
         task_id, state=const.TASK_STATE_COMPLETE, progress=100, **kwargs

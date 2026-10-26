@@ -56,6 +56,7 @@ from app.services import (
     muapi,
     infistar_video,
     ofox,
+    rick_quality,
     subtitle,
     video,
     volcengine_seedance,
@@ -688,6 +689,7 @@ def _initialize_session_state():
     defaults = {
         "video_subject": "",
         "video_script": "",
+        "rick_profile_enabled": False,
         "video_terms": "",
         "paragraph_number_input": _saved_ui_number(
             "paragraph_number",
@@ -1551,6 +1553,8 @@ def _apply_restored_params(params):
     # 文案与高级脚本设置。
     st.session_state["video_subject"] = params.get("video_subject") or ""
     st.session_state["video_script"] = params.get("video_script") or ""
+    st.session_state["rick_profile_enabled"] = bool(params.get("rick_profile_enabled", False))
+    st.session_state.pop("rick_previous_script_language", None)
     st.session_state["video_terms"] = str(video_terms)
     _set_stable_widget_value(
         "script_language_select", params.get("video_language") or ""
@@ -2032,6 +2036,20 @@ def _render_generation_logs(task_id):
     st.code("\n".join(log_records))
 
 
+def _render_rick_quality(diagnostics):
+    """Display estimates separately from approval of the measured duration."""
+    if not isinstance(diagnostics, Mapping):
+        return
+    estimate = diagnostics.get("script_estimate")
+    if isinstance(estimate, Mapping) and estimate.get("message"):
+        render = st.info if estimate.get("approved") else st.warning
+        render(estimate["message"])
+    measured = diagnostics.get("audio_duration")
+    if isinstance(measured, Mapping) and measured.get("message"):
+        render = st.success if measured.get("approved") else st.error
+        render(measured["message"])
+
+
 def _render_generation_task_snapshot(task_id, task):
     """根据状态存储中的快照渲染进度、失败原因或最终成片。"""
     if not task:
@@ -2039,6 +2057,7 @@ def _render_generation_task_snapshot(task_id, task):
         _render_generation_logs(task_id)
         return
 
+    _render_rick_quality(task.get("rick_quality"))
     state = _normalize_task_state(task.get("state"))
     progress = max(0, min(100, int(task.get("progress", 0) or 0)))
     if state == const.TASK_STATE_PROCESSING:
@@ -2055,6 +2074,9 @@ def _render_generation_task_snapshot(task_id, task):
         error = str(task.get("error") or "").strip()
         message = tr("Video Generation Failed")
         st.error(f"{message}: {error}" if error else message)
+        if task.get("rick_quality") and os.path.isfile(task.get("audio_file") or ""):
+            st.caption("Narração preservada para revisão:")
+            st.audio(task["audio_file"])
         if not video_files:
             _render_generation_logs(task_id)
             return
@@ -2579,6 +2601,20 @@ def sync_script_order_concat_mode():
 def reset_script_system_prompt():
     """将高级脚本设置中的系统提示词恢复为当前版本的默认内容。"""
     st.session_state["custom_system_prompt"] = llm.DEFAULT_SCRIPT_SYSTEM_PROMPT
+
+
+def _sync_rick_profile_language(enabled):
+    """Temporarily select pt-BR without changing the saved language preference."""
+    widget_key = localized_widget_key("script_language_select")
+    previous_key = "rick_previous_script_language"
+    if enabled:
+        if previous_key not in st.session_state:
+            st.session_state[previous_key] = st.session_state.get(
+                widget_key, config.ui.get("video_language", "")
+            )
+        st.session_state[widget_key] = rick_quality.PROFILE.language
+    elif previous_key in st.session_state:
+        st.session_state[widget_key] = st.session_state.pop(previous_key)
 
 
 def reset_subtitle_settings():
@@ -4718,7 +4754,10 @@ def _render_local_script_generation(params):
                 video_script_prompt=params.video_script_prompt,
                 custom_system_prompt=params.custom_system_prompt,
                 app_config=app_config_snapshot,
+                **({"rick_profile_enabled": True} if params.rick_profile_enabled else {}),
             )
+            if params.rick_profile_enabled and not script:
+                return "", []
             terms = llm.generate_terms(
                 params.video_subject,
                 script,
@@ -4732,6 +4771,9 @@ def _render_local_script_generation(params):
             "generate_script_and_terms",
             generate_script_and_terms,
         )
+        if params.rick_profile_enabled and not script:
+            st.error("O gerador não retornou um roteiro válido. Nenhuma nova tentativa foi feita.")
+            return
         if "Error: " in script:
             st.error(tr(script))
         elif "Error: " in terms:
@@ -5052,6 +5094,15 @@ def _render_script_settings(panel, params):
     with panel:
         with st.container(border=True):
             st.write(tr("Video Script Settings"))
+            params.rick_profile_enabled = st.checkbox(
+                rick_quality.PROFILE.label,
+                key="rick_profile_enabled",
+                help="Português brasileiro, meta de 35–50 s e validação do áudio real. "
+                     "Não reescreve o texto informado nem regenera áudio automaticamente.",
+            )
+            _sync_rick_profile_language(params.rick_profile_enabled)
+            if params.rick_profile_enabled:
+                st.caption("Perfil ativo: Português (Brasil) · 35–50 s. Usa o LLM configurado.")
             # 标签行需要容纳“配置大模型”入口，因此无法继续使用 text_area
             # 内置标签。把标签和输入框收进同一个字段容器后，可覆盖内部间距，
             # 同时让该字段与页面上的其它表单控件保持一致的外部节奏。
@@ -5084,6 +5135,7 @@ def _render_script_settings(panel, params):
 
             video_languages = [
                 (tr("Auto Detect"), ""),
+    		("Português (Brasil)", "pt-BR"),
             ]
             for code in support_locales:
                 video_languages.append((code, code))
@@ -5097,12 +5149,16 @@ def _render_script_settings(panel, params):
                     "",
                 ),
                 key="script_language_select",
+                disabled=params.rick_profile_enabled,
                 format_func=lambda value: dict(
                     (v, label) for label, v in video_languages
                 )[value],
             )
-            params.video_language = selected_language_code
-            _set_runtime_config("ui", "video_language", params.video_language)
+            params.video_language = (
+                rick_quality.PROFILE.language if params.rick_profile_enabled else selected_language_code
+            )
+            if not params.rick_profile_enabled:
+                _set_runtime_config("ui", "video_language", params.video_language)
 
             # 使用带 key 的局部容器限定折叠入口样式，保持 expander 的原生交互，
             # 同时避免样式误伤页面顶部的“基础设置”等其他折叠区域。
@@ -5125,6 +5181,7 @@ def _render_script_settings(panel, params):
                         options=script_backend_options,
                         default_value=_effective_script_generation_backend(),
                         key="script_generation_backend_select",
+                        disabled=params.rick_profile_enabled,
                         format_func=lambda value: script_backend_labels[value],
                         help=_script_generation_method_help(current_script_backend),
                     )
@@ -5191,11 +5248,12 @@ def _render_script_settings(panel, params):
                                 paragraph_number=params.paragraph_number,
                                 video_script_prompt=params.video_script_prompt,
                                 custom_system_prompt=params.custom_system_prompt,
+                                rick_profile_enabled=params.rick_profile_enabled,
                             )
                         )
 
             # 模型发现只增强视频素材，不改变用户明确选择的文案 Provider。
-            if _effective_script_generation_backend() == "loomloom":
+            if _effective_script_generation_backend() == "loomloom" and not params.rick_profile_enabled:
                 _render_loomloom_script_generation(params)
             else:
                 _render_local_script_generation(params)
@@ -5205,7 +5263,11 @@ def _render_script_settings(panel, params):
                 height=180,
                 key="video_script",
             )
-            if _effective_script_generation_backend() == "loomloom":
+            if params.rick_profile_enabled:
+                _render_rick_quality({
+                    "script_estimate": rick_quality.estimate_script_duration(params.video_script).to_dict()
+                })
+            if _effective_script_generation_backend() == "loomloom" and not params.rick_profile_enabled:
                 st.caption(tr("LoomLoom Video Terms Reuse Help"))
             elif st.button(
                 tr("Generate Video Keywords"),
@@ -6412,6 +6474,10 @@ def _render_voice_preview(params, friendly_names, selected_tts_server, voice_nam
         and cached_preview.get("fingerprint") in valid_fingerprints
         and cached_preview.get("audio_bytes")
     ):
+        if params.rick_profile_enabled and cached_preview.get("fingerprint") == full_fingerprint:
+            _render_rick_quality({
+                "audio_duration": rick_quality.validate_audio_duration(cached_preview.get("duration")).to_dict()
+            })
         # 只在用户本次明确点击“试听音色”时自动播放。Streamlit 的其它控件
         # 也会触发页面 rerun；如果对缓存音频永久开启 autoplay，修改任意设置
         # 都可能让旧试听从头播放。完整试听继续保留手动播放，避免较长音频在
