@@ -678,18 +678,19 @@ def _apply_rick_startup_preset_once():
     """
     pending = rick_startup_preset.pending_startup_settings(config.ui)
     if not pending:
-        return
+        return False
     for section, key, value in pending:
         if not _set_runtime_config(section, key, value):
             logger.warning("Rick startup preset deferred; will retry after config unlock")
-            return
+            return False
     if not _set_runtime_config(
         "ui", rick_startup_preset.PRESET_MARKER,
         rick_startup_preset.PRESET_VERSION,
     ):
         logger.warning("Rick startup preset marker deferred")
-        return
+        return False
     _save_runtime_config()
+    return True
 
 
 def _initialize_session_state():
@@ -815,7 +816,6 @@ def _initialize_session_state():
         st.session_state.setdefault(key, value)
 
 
-_apply_rick_startup_preset_once()
 _initialize_session_state()
 
 
@@ -8619,6 +8619,16 @@ def _render_generation_controls(
 
 def _render_application():
     """按固定顺序渲染顶部栏、弹窗、生成表单和任务结果。"""
+    # Streamlit can reconnect with widget values from an older browser session.
+    # Persisting config.toml is not enough: old widget state would overwrite it
+    # in the first rerun. Seed both sources before rendering any widget, once.
+    if _apply_rick_startup_preset_once():
+        rick_startup_preset.seed_startup_widgets(
+            st.session_state,
+            lambda key, value: st.session_state.__setitem__(
+                localized_widget_key(key), value
+            ),
+        )
     _render_top_bar()
 
     if st.session_state.get("settings_dialog_open", False):
