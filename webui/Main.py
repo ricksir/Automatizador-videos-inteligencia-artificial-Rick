@@ -5084,6 +5084,7 @@ def _render_script_settings(panel, params):
 
             video_languages = [
                 (tr("Auto Detect"), ""),
+    		("Português (Brasil)", "pt-BR"),
             ]
             for code in support_locales:
                 video_languages.append((code, code))
