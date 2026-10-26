@@ -51,6 +51,10 @@ class TestRickPipeline(unittest.TestCase):
             "generate_audio": Mock(return_value=(str(self.audio), 35, object())),
             "generate_subtitle": Mock(return_value="subtitle.srt"),
             "get_video_materials": Mock(return_value=["offline-clip.mp4"]),
+            # The offline AST loader extracts _run_pipeline without importing
+            # every helper in task.py. Stub the new, optional scene preview so
+            # legacy duration tests still exercise the full render path.
+            "_record_rick_scene_candidate_preview": Mock(),
             "generate_final_videos": Mock(return_value=(["final.mp4"], ["combined.mp4"], [])),
             "_schedule_cross_post": Mock(side_effect=AssertionError("No uploads")),
             "upload_post": types.SimpleNamespace(upload_post_service=Mock()),
@@ -82,6 +86,7 @@ class TestRickPipeline(unittest.TestCase):
     def assert_no_downstream_work(self):
         self.namespace["generate_subtitle"].assert_not_called()
         self.namespace["get_video_materials"].assert_not_called()
+        self.namespace["_record_rick_scene_candidate_preview"].assert_not_called()
         self.namespace["generate_final_videos"].assert_not_called()
         self.namespace["_schedule_cross_post"].assert_not_called()
         self.namespace["upload_post"].upload_post_service.is_configured.assert_not_called()
@@ -114,6 +119,10 @@ class TestRickPipeline(unittest.TestCase):
                 self.assertEqual(result["audio_duration"], duration)
                 self.assertTrue(result["rick_quality"]["audio_duration"]["approved"])
                 self.assertEqual(self.namespace["get_video_materials"].call_args.args[3], duration)
+                self.assertEqual(
+                    self.namespace["_record_rick_scene_candidate_preview"].call_args.args[4],
+                    duration,
+                )
                 self.assertEqual(self.namespace["generate_final_videos"].call_args.args[5], duration)
         self.assertEqual(self.namespace["generate_audio"].call_count, 5)
         self.namespace["_schedule_cross_post"].assert_not_called()
