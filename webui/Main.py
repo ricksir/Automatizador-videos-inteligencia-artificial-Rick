@@ -8622,13 +8622,24 @@ def _render_application():
     # Streamlit can reconnect with widget values from an older browser session.
     # Persisting config.toml is not enough: old widget state would overwrite it
     # in the first rerun. Seed both sources before rendering any widget, once.
-    if _apply_rick_startup_preset_once():
-        rick_startup_preset.seed_startup_widgets(
-            st.session_state,
-            lambda key, value: st.session_state.__setitem__(
-                localized_widget_key(key), value
-            ),
-        )
+    _apply_rick_startup_preset_once()
+    session_key = "_rick_startup_session_hydrated_v3"
+    if not st.session_state.get(session_key):
+        # config.toml is process-wide, but Streamlit widget state is per-tab.
+        # Every new tab/reconnect must hydrate from the *saved values*, even
+        # when the one-time installation preset has already run elsewhere.
+        ui_snapshot = config.snapshot_config_with_pending(config.ui)
+        app_snapshot = config.snapshot_config_with_pending(config.app)
+        if not rick_startup_preset.pending_startup_settings(ui_snapshot):
+            rick_startup_preset.seed_startup_widgets(
+                st.session_state,
+                lambda key, value: st.session_state.__setitem__(
+                    localized_widget_key(key), value
+                ),
+                ui_config=ui_snapshot,
+                app_config=app_snapshot,
+            )
+            st.session_state[session_key] = True
     _render_top_bar()
 
     if st.session_state.get("settings_dialog_open", False):
