@@ -57,6 +57,7 @@ from app.services import (
     infistar_video,
     ofox,
     rick_quality,
+    rick_startup_preset,
     subtitle,
     video,
     volcengine_seedance,
@@ -669,6 +670,29 @@ def _save_uploaded_local_materials(uploaded_files):
     return materials, persisted
 
 
+def _apply_rick_startup_preset_once():
+    """Apply Rick's preferred startup settings once, never replacing later edits.
+
+    Only known UI/app preferences are written; credentials remain untouched.
+    The version marker is stored last so incomplete writes can be retried.
+    """
+    pending = rick_startup_preset.pending_startup_settings(config.ui)
+    if not pending:
+        return False
+    for section, key, value in pending:
+        if not _set_runtime_config(section, key, value):
+            logger.warning("Rick startup preset deferred; will retry after config unlock")
+            return False
+    if not _set_runtime_config(
+        "ui", rick_startup_preset.PRESET_MARKER,
+        rick_startup_preset.PRESET_VERSION,
+    ):
+        logger.warning("Rick startup preset marker deferred")
+        return False
+    _save_runtime_config()
+    return True
+
+
 def _initialize_session_state():
     """集中初始化跨 rerun 保留的页面状态。"""
     if not st.session_state.get("cross_post_recovery_checked"):
@@ -689,8 +713,8 @@ def _initialize_session_state():
     defaults = {
         "video_subject": "",
         "video_script": "",
-        "rick_profile_enabled": False,
-        "avoid_repeated_materials": False,
+        "rick_profile_enabled": _saved_ui_bool("rick_profile_enabled", True),
+        "avoid_repeated_materials": _saved_ui_bool("avoid_repeated_materials", True),
         "video_terms": "",
         "paragraph_number_input": _saved_ui_number(
             "paragraph_number",
@@ -5107,6 +5131,7 @@ def _render_script_settings(panel, params):
                 help="Português brasileiro, meta de 35–50 s e validação do áudio real. "
                      "Não reescreve o texto informado nem regenera áudio automaticamente.",
             )
+            _set_runtime_config("ui", "rick_profile_enabled", params.rick_profile_enabled)
             _sync_rick_profile_language(params.rick_profile_enabled)
             if params.rick_profile_enabled:
                 st.caption("Perfil ativo: Português (Brasil) · 35–50 s. Usa o LLM configurado.")
@@ -5318,6 +5343,7 @@ def _render_media_diversity_control(params):
         help="Prioriza origens distintas e alterna materiais quando precisar reutilizá-los. "
              "Avisa quando faltam opções; não verifica relevância ou identidade de pessoas.",
     )
+    _set_runtime_config("ui", "avoid_repeated_materials", params.avoid_repeated_materials)
 
 
 def _render_video_settings(panel, params):
@@ -8593,6 +8619,27 @@ def _render_generation_controls(
 
 def _render_application():
     """按固定顺序渲染顶部栏、弹窗、生成表单和任务结果。"""
+    # Streamlit can reconnect with widget values from an older browser session.
+    # Persisting config.toml is not enough: old widget state would overwrite it
+    # in the first rerun. Seed both sources before rendering any widget, once.
+    _apply_rick_startup_preset_once()
+    session_key = "_rick_startup_session_hydrated_v3"
+    if not st.session_state.get(session_key):
+        # config.toml is process-wide, but Streamlit widget state is per-tab.
+        # Every new tab/reconnect must hydrate from the *saved values*, even
+        # when the one-time installation preset has already run elsewhere.
+        ui_snapshot = config.snapshot_config_with_pending(config.ui)
+        app_snapshot = config.snapshot_config_with_pending(config.app)
+        if not rick_startup_preset.pending_startup_settings(ui_snapshot):
+            rick_startup_preset.seed_startup_widgets(
+                st.session_state,
+                lambda key, value: st.session_state.__setitem__(
+                    localized_widget_key(key), value
+                ),
+                ui_config=ui_snapshot,
+                app_config=app_snapshot,
+            )
+            st.session_state[session_key] = True
     _render_top_bar()
 
     if st.session_state.get("settings_dialog_open", False):

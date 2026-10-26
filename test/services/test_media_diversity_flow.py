@@ -216,7 +216,12 @@ class TestMediaDiversityFlow(unittest.TestCase):
 
     def test_ui_control_is_optional_and_does_not_change_rick_language(self):
         st = Mock()
-        ui = load_functions("webui/Main.py", {"_render_media_diversity_control"}, {"st": st})
+        persist = Mock()
+        ui = load_functions(
+            "webui/Main.py",
+            {"_render_media_diversity_control"},
+            {"st": st, "_set_runtime_config": persist},
+        )
         params = self.schema.VideoParams(video_subject="Céu", video_language="pt-BR", rick_profile_enabled=True)
         self.assertFalse(params.avoid_repeated_materials)
         for enabled in (True, False):
@@ -226,6 +231,8 @@ class TestMediaDiversityFlow(unittest.TestCase):
             self.assertTrue(params.rick_profile_enabled)
             self.assertEqual(params.video_language, "pt-BR")
             self.assertEqual(st.checkbox.call_args.kwargs["key"], "avoid_repeated_materials")
+            persist.assert_called_with("ui", "avoid_repeated_materials", enabled)
+        self.assertEqual(persist.call_count, 2)
 
     def test_all_encoder_outputs_are_cleaned_even_if_rotation_uses_only_a_subset(self):
         self.sources = {"a.mp4": 40, "b.mp4": 1}
