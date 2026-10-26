@@ -246,6 +246,93 @@ class TestRickStartupPreset(unittest.TestCase):
         self.assertTrue(old_session["subtitle_enabled_checkbox"])
         self.assertEqual(old_session["font_size_slider"], 55)
 
+    def test_real_webui_render_bootstraps_old_session_when_marker_already_applied(self):
+        """Execute the actual WebUI controller body with mock panels and no network."""
+        import ast
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, Mock
+        from app.services import rick_startup_preset
+
+        root = Path(__file__).resolve().parents[2]
+        path = root / "webui" / "Main.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        target = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_render_application"
+        )
+        module = ast.Module(body=[target], type_ignores=[])
+
+        ui = {
+            PRESET_MARKER: PRESET_VERSION,
+            "rick_profile_enabled": True,
+            "avoid_repeated_materials": True,
+            "subtitle_enabled": True,
+            "video_clip_duration": 4,
+            "tts_server": "gemini-tts",
+        }
+        app_config = {"video_source": "pixabay", "match_materials_to_script": True}
+        conf = SimpleNamespace(
+            ui=ui,
+            app=app_config,
+            snapshot_config_with_pending=lambda section: dict(section),
+        )
+        st = MagicMock()
+        st.session_state = {
+            "ui_language": "pt",
+            "rick_profile_enabled": False,
+            "avoid_repeated_materials": False,
+            "subtitle_enabled_checkbox": False,
+            "match_materials_to_script": False,
+            "video_clip_duration_select_pt": 2,
+            "tts_server_select_pt": "azure-tts-v1",
+        }
+        st.columns.return_value = [MagicMock() for _ in range(4)]
+        render_video = Mock(return_value=[])
+        render_audio = Mock(return_value=(None, None, "tts"))
+        render_script = Mock()
+        env = {
+            "st": st,
+            "config": conf,
+            "rick_startup_preset": rick_startup_preset,
+            "localized_widget_key": lambda key: key + "_pt",
+            "_apply_rick_startup_preset_once": Mock(return_value=False),
+            "_render_top_bar": Mock(),
+            "_apply_pending_settings_preset": Mock(return_value=False),
+            "_apply_pending_task_restore": Mock(return_value=False),
+            "_render_task_restore_dialog": Mock(),
+            "_render_settings_dialog": Mock(),
+            "_render_script_settings": render_script,
+            "_render_video_settings": render_video,
+            "_render_audio_settings": render_audio,
+            "_render_subtitle_settings": Mock(),
+            "_render_generation_controls": Mock(return_value=False),
+            "_save_runtime_config": Mock(),
+            "VideoParams": lambda video_subject: SimpleNamespace(
+                video_subject=video_subject
+            ),
+            "tr": lambda value: value,
+        }
+        exec(compile(module, str(path), "exec"), env)
+        env["_render_application"]()
+        self.assertTrue(st.session_state["rick_profile_enabled"])
+        self.assertTrue(st.session_state["avoid_repeated_materials"])
+        self.assertTrue(st.session_state["subtitle_enabled_checkbox"])
+        self.assertTrue(st.session_state["match_materials_to_script"])
+        self.assertEqual(st.session_state["video_clip_duration_select_pt"], 4)
+        self.assertEqual(st.session_state["tts_server_select_pt"], "gemini-tts")
+        self.assertTrue(st.session_state["_rick_startup_session_hydrated_v3"])
+        render_script.assert_called_once()
+
+        # A normal widget interaction during the same session must not be
+        # replaced by the preset on Streamlit rerun.
+        st.session_state["rick_profile_enabled"] = False
+        st.session_state["video_clip_duration_select_pt"] = 5
+        env["_render_application"]()
+        self.assertFalse(st.session_state["rick_profile_enabled"])
+        self.assertEqual(st.session_state["video_clip_duration_select_pt"], 5)
+        self.assertEqual(render_script.call_count, 2)
+
     def test_new_streamlit_session_loads_user_changes_after_preset_applied(self):
         from app.services.rick_startup_preset import seed_startup_widgets
         ui_saved = {
