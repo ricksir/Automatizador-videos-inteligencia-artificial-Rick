@@ -86,7 +86,7 @@ def plan_source_slices(
         if abs(start - expected_start) > Decimal("0.0001") or end <= start:
             raise ValueError("scene timeline has a gap, overlap or zero duration")
         expected_start = end
-        required = (end - start + (tail if index == len(segments) - 1 else 0)) * speed
+        required = (end - start) * speed
 
         cursor = cursors.get(name, Decimal(0))
         # Remaining source frame budget may be tiny due to prior slicing.
@@ -114,6 +114,38 @@ def plan_source_slices(
             if length - cursor < MIN_SOURCE_SECONDS:
                 cursor = Decimal(0)
         cursors[name] = cursor
+
+    # Keep the codec safety margin as its own source slice. Appending it to
+    # a max-duration scene would be trimmed by combine_videos' per-clip cap.
+    if tail:
+        last = segments[-1]
+        name = last["source_file"]
+        spec = source_specs[name]
+        length = _number(spec.get("duration_seconds"), "source duration")
+        cursor = cursors[name]
+        required = tail * speed
+        while required > EPSILON:
+            if length - cursor < MIN_SOURCE_SECONDS:
+                cursor = Decimal(0)
+            take = min(required, length - cursor)
+            if take <= EPSILON:
+                raise ValueError("cannot allocate final safety margin")
+            output.append({
+                "source_file": name,
+                "file_path": spec["file_path"],
+                "source_start_seconds": float(cursor),
+                "source_end_seconds": float(cursor + take),
+                "source_width": int(_number(spec.get("width"), "source width")),
+                "source_height": int(_number(spec.get("height"), "source height")),
+                "duration_seconds": float(take / speed),
+                "scene_number": last.get("scene_number"),
+            })
+            if len(output) > MAX_SOURCE_SLICES:
+                raise ValueError("scene render would exceed maximum source slices")
+            cursor += take
+            required -= take
+            if length - cursor < MIN_SOURCE_SECONDS:
+                cursor = Decimal(0)
 
     duration = _number(timeline.get("duration_seconds"), "audio duration")
     if abs(expected_start - duration) > Decimal("0.0001"):
