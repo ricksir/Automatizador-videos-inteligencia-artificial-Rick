@@ -1,6 +1,5 @@
 """No-API tests for opt-in source slicing on actual scene windows."""
 
-import math
 import pytest
 
 from app.services.rick_scene_render import plan_source_slices
