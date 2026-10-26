@@ -4,11 +4,22 @@ import ast
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from app.services import rick_scene_assignment, rick_scene_plan
+
+
+@pytest.fixture
+def scene_temp_dir():
+    """Use a repo-local scratch directory, not a possibly locked Windows temp root."""
+    root = Path(__file__).resolve().parents[2]
+    with tempfile.TemporaryDirectory(prefix=".rick-scenes-test-", dir=root) as folder:
+        yield Path(folder)
 
 
 def _load_preview_handler(tmp_path):
@@ -42,7 +53,8 @@ def _params(**kwargs):
     return SimpleNamespace(**default)
 
 
-def test_successful_download_creates_a_preview_without_changing_video_paths(tmp_path):
+def test_successful_download_creates_a_preview_without_changing_video_paths(scene_temp_dir):
+    tmp_path = scene_temp_dir
     script = "Gramsci escreveu sobre ideias. Uma eleição envolve discursos e escolhas."
     records = [
         {"local_file": "books.mp4", "provider": "pixabay", "asset_id": "5", "search_term": "books"},
@@ -71,14 +83,16 @@ def test_successful_download_creates_a_preview_without_changing_video_paths(tmp_
     assert not log.warning.called
 
 
-def test_disabled_matching_does_not_read_or_save(tmp_path):
+def test_disabled_matching_does_not_read_or_save(scene_temp_dir):
+    tmp_path = scene_temp_dir
     fn, writer, log = _load_preview_handler(tmp_path)
     fn("task-456", _params(match_materials_to_script=False), "Roteiro.", ["books"], 5, [])
     writer.assert_not_called()
     log.warning.assert_not_called()
 
 
-def test_other_video_sources_not_affected(tmp_path):
+def test_other_video_sources_not_affected(scene_temp_dir):
+    tmp_path = scene_temp_dir
     fn, writer, log = _load_preview_handler(tmp_path)
     for source in ("local", "openai_image", "wavespeed"):
         fn("task-456", _params(video_source=source), "Roteiro.", ["books"], 5, [])
@@ -86,7 +100,8 @@ def test_other_video_sources_not_affected(tmp_path):
     log.warning.assert_not_called()
 
 
-def test_missing_manifest_cannot_break_video_generation(tmp_path):
+def test_missing_manifest_cannot_break_video_generation(scene_temp_dir):
+    tmp_path = scene_temp_dir
     fn, writer, log = _load_preview_handler(tmp_path)
     fn("task-789", _params(), "Trabalho e cultura.", ["work"], 4, [])
     writer.assert_not_called()
