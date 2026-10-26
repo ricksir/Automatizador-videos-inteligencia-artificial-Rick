@@ -10,7 +10,6 @@ decodability, duration and relation to the narrator are NOT verified here.
 
 from __future__ import annotations
 
-import math
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from pathlib import PurePath
@@ -103,13 +102,12 @@ def build_scene_render_preflight(
             raise ValueError("every scene must be a record")
         start = _seconds(scene.get("start_seconds"), "scene.start_seconds")
         end = _positive_seconds(scene.get("end_seconds"), "scene.end_seconds")
-        if end <= start:
-            raise ValueError("every scene must have positive duration")
         if abs(start - last_end) > _EPSILON:
             raise ValueError("scene timestamps have a gap or overlap")
-        if start < last_end:
-            # Within tolerance: enforce the previous endpoint exactly.
-            start = last_end
+        # Collapse minor rounding noise instead of leaving invisible gaps.
+        start = last_end
+        if end <= start:
+            raise ValueError("every scene must have positive duration")
         last_end = end
         name = _filename(scene.get("assigned_material_file"))
         if scene.get("match_status") != "term_match_unverified":
