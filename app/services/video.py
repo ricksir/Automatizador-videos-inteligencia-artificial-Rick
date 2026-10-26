@@ -42,6 +42,7 @@ from app.models.schema import (
     VideoTransitionMode,
 )
 from app.services import bgm as bgm_service
+from app.services import media_diversity
 from app.services.utils import video_effects
 from app.utils import file_security, logging_utils, utils
 from app.utils.subtitle_reader import moviepy_subtitles
@@ -985,6 +986,9 @@ def combine_videos(
     source_groups: dict[str, str] | None = None,
     used_video_paths: List[str] | None = None,
     progress_callback: Callable[[float], None] | None = None,
+    avoid_repeated_materials: bool = False,
+    material_identities: dict[str, str] | None = None,
+    diversity_report: dict | None = None,
 ) -> str:
     # Pydantic leaves this optional default as the string "random" unless
     # explicitly provided. Normalize it once for all downstream enum access.
@@ -1026,6 +1030,8 @@ def combine_videos(
     processed_clips = []
     subclipped_items = []
     video_duration = 0
+    if avoid_repeated_materials and material_identities is None:
+        material_identities, _ = media_diversity.identify_materials(video_paths)
     for video_path in video_paths:
         clip = None
         try:
@@ -1070,7 +1076,7 @@ def combine_videos(
                 )
 
             start_time = end_time
-            if video_concat_mode.value == VideoConcatMode.sequential.value:
+            if video_concat_mode.value == VideoConcatMode.sequential.value and not avoid_repeated_materials:
                 break
 
     subclipped_items = _prioritize_unique_source_clips(
@@ -1079,6 +1085,8 @@ def combine_videos(
         **({"source_usage": source_usage, "source_groups": source_groups}
            if source_usage is not None else {}),
     )
+    if avoid_repeated_materials:
+        subclipped_items = media_diversity.distinct_source_clips(subclipped_items, material_identities)
         
     logger.debug(f"total subclipped items: {len(subclipped_items)}")
     
@@ -1241,7 +1249,17 @@ def combine_videos(
             next_candidate_index = candidate_index
     
     # loop processed clips until the video duration covers the audio duration and the small safety margin.
-    if video_duration < required_video_duration:
+    encoded_clip_files = [clip.file_path for clip in processed_clips]
+    if avoid_repeated_materials:
+        processed_clips, report = media_diversity.plan_timeline(
+            processed_clips, required_video_duration, material_identities,
+            visible_seconds=audio_duration,
+        )
+        if diversity_report is not None:
+            diversity_report.update(report)
+        for warning in report["warnings"]:
+            logger.warning(warning["message"])
+    elif video_duration < required_video_duration:
         logger.warning(
             f"video duration ({video_duration:.2f}s) is shorter than required duration "
             f"({required_video_duration:.2f}s), looping clips to match audio length."
@@ -1261,6 +1279,8 @@ def combine_videos(
     # merge video clips progressively, avoid loading all videos at once to avoid memory overflow
     logger.info("starting clip merging process")
     if not processed_clips:
+        if avoid_repeated_materials:
+            raise RuntimeError("Antirrepetição: nenhum material válido disponível para a montagem.")
         if video_paths:
             raise RuntimeError("no readable video clips available for merging")
         logger.warning("no clips available for merging")
@@ -1287,7 +1307,7 @@ def combine_videos(
     finally:
         # FFmpeg failures and timeouts must not strand one encoded MP4 per clip.
         # Repeated clips share a path; delete_files already deduplicates them.
-        delete_files(clip_files)
+        delete_files(encoded_clip_files if avoid_repeated_materials else clip_files)
             
     logger.info("video combining completed")
     return combined_video_path

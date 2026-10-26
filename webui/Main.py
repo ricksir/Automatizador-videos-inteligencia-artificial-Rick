@@ -690,6 +690,7 @@ def _initialize_session_state():
         "video_subject": "",
         "video_script": "",
         "rick_profile_enabled": False,
+        "avoid_repeated_materials": False,
         "video_terms": "",
         "paragraph_number_input": _saved_ui_number(
             "paragraph_number",
@@ -1554,6 +1555,7 @@ def _apply_restored_params(params):
     st.session_state["video_subject"] = params.get("video_subject") or ""
     st.session_state["video_script"] = params.get("video_script") or ""
     st.session_state["rick_profile_enabled"] = bool(params.get("rick_profile_enabled", False))
+    st.session_state["avoid_repeated_materials"] = bool(params.get("avoid_repeated_materials", False))
     st.session_state.pop("rick_previous_script_language", None)
     st.session_state["video_terms"] = str(video_terms)
     _set_stable_widget_value(
@@ -2078,6 +2080,9 @@ def _render_generation_task_snapshot(task_id, task):
             st.caption("Narração preservada para revisão:")
             st.audio(task["audio_file"])
         if not video_files:
+            for warning in task.get("warnings") or []:
+                if isinstance(warning, Mapping) and str(warning.get("code", "")).startswith("media_diversity_"):
+                    st.warning(warning.get("message", "Nenhum material válido disponível."))
             _render_generation_logs(task_id)
             return
     elif state != const.TASK_STATE_COMPLETE or not video_files:
@@ -2088,7 +2093,9 @@ def _render_generation_task_snapshot(task_id, task):
     if state == const.TASK_STATE_COMPLETE:
         st.success(tr("Video Generation Completed"))
     for warning in task.get("warnings") or []:
-        if isinstance(warning, Mapping) and warning.get("code") == "batch_materials_reused":
+        if isinstance(warning, Mapping) and str(warning.get("code", "")).startswith("media_diversity_"):
+            st.warning(warning.get("message", "Materiais insuficientes para evitar repetições."))
+        elif isinstance(warning, Mapping) and warning.get("code") == "batch_materials_reused":
             st.warning(
                 tr("Batch Material Reuse Warning").format(
                     index=warning.get("video_index", ""), count=warning.get("count", 0)
@@ -5304,6 +5311,15 @@ def _render_script_settings(panel, params):
             )
 
 
+def _render_media_diversity_control(params):
+    params.avoid_repeated_materials = st.checkbox(
+        "Evitar repetição de materiais (Rick)",
+        key="avoid_repeated_materials",
+        help="Prioriza origens distintas e alterna materiais quando precisar reutilizá-los. "
+             "Avisa quando faltam opções; não verifica relevância ou identidade de pessoas.",
+    )
+
+
 def _render_video_settings(panel, params):
     """渲染视频设置并返回本次选择的本地素材。"""
     uploaded_files = []
@@ -5408,6 +5424,7 @@ def _render_video_settings(panel, params):
                 key="match_materials_to_script",
                 on_change=sync_script_order_concat_mode,
             )
+            _render_media_diversity_control(params)
             _set_runtime_config(
                 "app",
                 "match_materials_to_script",

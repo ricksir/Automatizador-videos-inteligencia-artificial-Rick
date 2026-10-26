@@ -23,6 +23,7 @@ from app.services import (
     llm,
     loomloom,
     material,
+    media_diversity,
     metaso_minimax,
     muapi,
     ofox,
@@ -993,6 +994,24 @@ def _get_material_source_groups(task_id: str, video_paths: list[str]) -> dict[st
         return {}
 
 
+def _identify_task_materials(task_id, video_paths):
+    """Read only the task's public material manifest; hash downloaded media locally."""
+    try:
+        with open(path.join(utils.task_dir(task_id), "script.json"), encoding="utf-8") as file:
+            records = json.load(file).get("material_sources", [])
+    except (OSError, ValueError, AttributeError, TypeError):
+        records = []
+    return media_diversity.identify_materials(video_paths, records)
+
+
+def _record_empty_material_diversity(task_id, audio_duration):
+    _, report = media_diversity.plan_timeline([], audio_duration, {})
+    task_artifacts.patch_script_data(task_id, media_diversity=[report])
+    sm.state.patch_task(task_id, warnings=report["warnings"])
+    for warning in report["warnings"]:
+        logger.warning(warning["message"])
+
+
 def generate_final_videos(
     task_id, params, downloaded_videos, audio_file, subtitle_path, audio_duration,
     *, partial_results: dict | None = None,
@@ -1013,6 +1032,18 @@ def generate_final_videos(
     }
     source_usage = {}
     material_selections = []
+    avoid_repeated_materials = getattr(params, "avoid_repeated_materials", False)
+    material_identities, identity_report = (
+        _identify_task_materials(task_id, downloaded_videos)
+        if avoid_repeated_materials else ({}, {})
+    )
+    if avoid_repeated_materials:
+        logger.info(
+            f"Antirrepetição: {identity_report['downloaded_unique_materials']} origens distintas; "
+            f"{identity_report['duplicate_files']} referências repetidas; "
+            f"{identity_report['unverified_files']} arquivos sem hash verificável."
+        )
+    diversity_reports = []
     source_groups = (
         _get_material_source_groups(task_id, downloaded_videos)
         if (allocate_batch_materials and params.match_materials_to_script
@@ -1051,25 +1082,45 @@ def generate_final_videos(
             }
             if allocate_batch_materials else {}
         )
+        diversity_report = dict(identity_report)
+        if avoid_repeated_materials:
+            batch_options.update(
+                avoid_repeated_materials=True,
+                material_identities=material_identities,
+                diversity_report=diversity_report,
+                used_video_paths=used_video_paths,
+            )
         # 每条视频占 50% 进度中的一份，合成与最终编码各占一半。片段处理是
         # 合成里最耗时的部分，逐段推进这一半的进度。
         combine_share = 50 / params.video_count / 2
-        video.combine_videos(
-            combined_video_path=combined_video_path,
-            video_paths=downloaded_videos,
-            audio_file=audio_file,
-            video_aspect=params.video_aspect,
-            video_fit_mode=params.video_fit_mode,
-            video_concat_mode=video_concat_mode,
-            video_transition_mode=video_transition_mode,
-            max_clip_duration=params.video_clip_duration,
-            threads=params.n_threads,
-            clip_speed=params.video_clip_speed,
-            progress_callback=_stage_progress_reporter(
-                task_id, _progress, _progress + combine_share
-            ),
-            **batch_options,
-        )
+        try:
+            video.combine_videos(
+                combined_video_path=combined_video_path,
+                video_paths=downloaded_videos,
+                audio_file=audio_file,
+                video_aspect=params.video_aspect,
+                video_fit_mode=params.video_fit_mode,
+                video_concat_mode=video_concat_mode,
+                video_transition_mode=video_transition_mode,
+                max_clip_duration=params.video_clip_duration,
+                threads=params.n_threads,
+                clip_speed=params.video_clip_speed,
+                progress_callback=_stage_progress_reporter(
+                    task_id, _progress, _progress + combine_share
+                ),
+                **batch_options,
+            )
+        finally:
+            if avoid_repeated_materials:
+                diversity_report.update(
+                    video_index=index,
+                    selected_files=[path.basename(file) for file in used_video_paths],
+                    selected_identities=[material_identities.get(file, "unknown") for file in used_video_paths],
+                )
+                diversity_reports.append(diversity_report)
+                task_artifacts.patch_script_data(task_id, media_diversity=diversity_reports)
+                for warning in diversity_report.get("warnings", []):
+                    warnings.append({**warning, "video_index": index})
         if allocate_batch_materials:
             selected_sources = list(dict.fromkeys(used_video_paths))
             reused_sources = [file for file in selected_sources if source_usage.get(file, 0)]
@@ -1860,6 +1911,8 @@ def _run_pipeline(
         loomloom_video_request=loomloom_video_request,
     )
     if not downloaded_videos:
+        if getattr(params, "avoid_repeated_materials", False):
+            _record_empty_material_diversity(task_id, audio_duration)
         return _mark_task_failed(
             task_id,
             "materials",
