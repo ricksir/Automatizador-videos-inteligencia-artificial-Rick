@@ -1046,7 +1046,7 @@ def _record_rick_scene_candidate_preview(
             rick_scene_candidate_preview=candidate_preview,
         )
         logger.info(
-            "Rick scene preview: scenes=%d, matched=%d, missing=%d; "
+            "Rick scene preview: scenes={}, matched={}, missing={}; "
             "preview only (does not drive final rendering)",
             candidate_preview["scene_count"],
             candidate_preview["scenes_with_term_candidate"],
@@ -1056,7 +1056,7 @@ def _record_rick_scene_candidate_preview(
         # A diagnostic preview must never cause a previously working video
         # generation run to fail. No secrets or full signed URLs in logs.
         logger.warning(
-            "Rick scene candidate preview unavailable: error_type=%s",
+            "Rick scene candidate preview unavailable: error_type={}",
             type(exc).__name__,
         )
 
