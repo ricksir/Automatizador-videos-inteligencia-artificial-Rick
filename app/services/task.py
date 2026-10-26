@@ -30,6 +30,7 @@ from app.services import (
     rick_quality,
     rick_scene_plan,
     rick_scene_assignment,
+    rick_scene_timeline,
     sonilo,
     subtitle,
     task_artifacts,
@@ -1061,6 +1062,55 @@ def _record_rick_scene_candidate_preview(
         )
 
 
+def _prepare_rick_scene_render(task_id, params, downloaded_videos, audio_duration):
+    """Fail closed before encoding when experimental scene mode is requested."""
+    if not getattr(params, "rick_scene_render_enabled", False):
+        return None
+    if (
+        not getattr(params, "match_materials_to_script", False)
+        or params.video_source not in {"pixabay", "pexels", "coverr"}
+        or params.video_count != 1
+    ):
+        raise ValueError(
+            "Montagem por cenas exige fonte Pixabay/Pexels/Coverr, "
+            "ordenação pelo roteiro e apenas um vídeo por execução."
+        )
+    manifest_file = path.join(utils.task_dir(task_id), "script.json")
+    try:
+        with open(manifest_file, encoding="utf-8") as input_file:
+            manifest = json.load(input_file)
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            "Prévia de cenas indisponível; não é seguro montar vídeo por cenas."
+        ) from exc
+    preview = manifest.get("rick_scene_candidate_preview")
+    if not isinstance(preview, dict):
+        raise ValueError(
+            "Prévia de cenas não encontrada. Nenhuma mídia genérica será usada "
+            "como substituta automática."
+        )
+    preflight = rick_scene_timeline.build_scene_render_preflight(
+        preview,
+        downloaded_videos,
+        audio_duration,
+        max_clip_seconds=params.video_clip_duration,
+    )
+    task_artifacts.patch_script_data(
+        task_id, rick_scene_render_preflight=preflight,
+    )
+    if preflight["status"] != "ready_metadata_only":
+        missing = [entry["scene_number"] for entry in preflight["blockers"]]
+        raise ValueError(
+            f"Montagem por cenas bloqueada: sem mídia correspondente nas cenas {missing}. "
+            "Revise palavras-chave ou fontes; não haverá substituição genérica."
+        )
+    logger.info(
+        "Rick scene render preflight: {} scenes, {} segments (estimated)",
+        preflight["scene_count"], preflight["segment_count"],
+    )
+    return preflight
+
+
 def _record_empty_material_diversity(task_id, audio_duration):
     _, report = media_diversity.plan_timeline([], audio_duration, {})
     task_artifacts.patch_script_data(task_id, media_diversity=[report])
@@ -1089,6 +1139,11 @@ def generate_final_videos(
     }
     source_usage = {}
     material_selections = []
+    # Disabled by default. When enabled, reject missing/ambiguous assets
+    # before generating any combined MP4.
+    scene_timeline = _prepare_rick_scene_render(
+        task_id, params, downloaded_videos, audio_duration
+    )
     avoid_repeated_materials = getattr(params, "avoid_repeated_materials", False)
     material_identities, identity_report = (
         _identify_task_materials(task_id, downloaded_videos)
@@ -1139,6 +1194,8 @@ def generate_final_videos(
             }
             if allocate_batch_materials else {}
         )
+        if scene_timeline is not None:
+            batch_options["scene_timeline"] = scene_timeline
         diversity_report = dict(identity_report)
         if avoid_repeated_materials:
             batch_options.update(
