@@ -14,7 +14,7 @@ A fonte de voz só funcionará se o usuário tiver sua própria chave Gemini.
 ## Uma vez, depois persistência normal
 
 Na primeira abertura com esta evolução, o programa grava
-`rick_startup_preset_version = 1` na seção `[ui]` de seu arquivo local
+`rick_startup_preset_version = 2` na seção `[ui]` de seu arquivo local
 `config.toml`. A configuração de vídeo anterior poderá ser substituída
 **somente nessa primeira aplicação**. Depois disso, alterações efetuadas
 na interface são persistidas normalmente e não serão reaplicadas na próxima
@@ -43,3 +43,17 @@ escolhe uma alternativa instalada sem impedir o carregamento.
 
 O preset **não resolve** correspondência semântica, fotografias históricas ou
 suficiência de materiais. Essas são atividades separadas da Issue #2.
+
+## Correção da persistência (versão 2)
+
+A versão inicial gravava os valores no arquivo mas não zerava os valores antigos
+que o navegador podia restaurar para os controles do Streamlit. Na abertura,
+esses controles voltavam a gravar opções antigas, mesmo quando o preset tinha
+sido aplicado. A versão 2 sincroniza explicitamente o estado dos controles
+**antes da renderização**, e somente ao aplicar ou migrar o preset.
+
+Quem testou a versão 1 receberá **mais uma aplicação única** do perfil na
+primeira abertura da versão 2. Depois, a preferência de cada controle deverá
+persistir, inclusive quando Rick ou antirrepetição estiverem desmarcados.
+Para evitar uma tela antiga, feche a aba WebUI e abra uma nova após reiniciar
+`webui.bat`. Nenhuma chave de API é alterada.
