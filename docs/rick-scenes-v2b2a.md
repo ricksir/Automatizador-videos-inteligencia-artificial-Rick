@@ -55,3 +55,22 @@ e escolha materiais somente dentre as opções relacionadas à consulta da cena.
 Tratar cobertura insuficiente explicitamente, preservar a sincronização do
 áudio, não fazer downloads pagos adicionais, manter `main` estável e
 exigir testes reais com mídias antes de afirmar alinhamento visual.
+
+
+## Regressão identificada e corrigida em 26/10/2026
+
+A primeira bateria local revelou **dois problemas independentes nos testes**:
+
+1. O runner legado em `test_rick_pipeline.py` extrai funções isoladas via
+   AST, sem carregar automaticamente helpers novos do módulo `task.py`.
+   A chamada a `_record_rick_scene_candidate_preview` gerou `NameError`
+   somente nesse namespace artificial. O teste agora fornece um `Mock`
+   explícito e confirma o estágio sem interferir na validação das durações.
+2. O `tmp_path` padrão do pytest tentou criar arquivos sob
+   `AppData\\Local\\Temp\\pytest-of-user` e recebeu `WinError 5`.
+   Os testes da integração agora usam diretório temporário sob a raiz do
+   próprio projeto com limpeza automática, como outras suítes do Rick.
+
+O PR permanece em rascunho; somente um novo teste no Windows pode confirmar
+a resolução. Não remover permissões nem apagar pastas de outros processos
+para contornar o erro.
