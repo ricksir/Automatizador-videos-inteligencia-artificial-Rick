@@ -157,12 +157,18 @@ class TestRickPipeline(unittest.TestCase):
             with self.subTest(duration=duration):
                 self.namespace["voice"].get_audio_duration.return_value = duration
                 result = self.task.start(f"invalid-{duration}", self.params())
-                self.assertEqual(result["failed_stage"], "rick_audio_quality")
+                self.assertEqual(
+                    result["failed_stage"], "rick_audio_quality",
+                    f"invalid measured duration={duration!r}; failure={result!r}",
+                )
                 self.assertEqual(result["rick_quality"]["audio_duration"]["code"], "invalid_duration")
                 self.assertIsNone(self.manifest()["rick_quality"]["audio_duration"]["seconds"])
         self.namespace["voice"].get_audio_duration.side_effect = OSError("unreadable fixture")
         result = self.task.start("unreadable", self.params())
-        self.assertEqual(result["failed_stage"], "rick_audio_quality")
+        self.assertEqual(
+            result["failed_stage"], "rick_audio_quality",
+            f"unreadable audio measurement failure={result!r}",
+        )
         self.assertTrue(self.audio.exists())
         self.assert_no_downstream_work()
 
