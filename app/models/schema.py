@@ -110,6 +110,7 @@ class VideoParams(BaseModel):
 
     video_subject: str
     video_script: str = ""  # Script used to generate the video
+    rick_profile_enabled: bool = False
     video_terms: Optional[str | List[str]] = None  # Keywords used to generate the video
     video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value
     video_fit_mode: VideoFitMode = VideoFitMode.cover
@@ -220,6 +221,7 @@ class VideoScriptParams:
     """
 
     video_subject: Optional[str] = "春天的花海"
+    rick_profile_enabled: bool = False
     video_language: Optional[str] = ""
     paragraph_number: int = Field(default=1, ge=1, le=10)
     video_script_prompt: str = Field(default="", max_length=2000)

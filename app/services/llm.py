@@ -16,6 +16,7 @@ from openai.types.chat import ChatCompletion
 
 from app.config import config
 from app.models.llm_provider import DEFAULT_LLM_PROVIDER_ID, get_llm_provider
+from app.services import rick_quality
 from app.utils import utils
 from app.utils.request_logging import trace_sdk_call
 
@@ -862,6 +863,7 @@ def build_script_prompt(
     paragraph_number: int = 1,
     video_script_prompt: str = "",
     custom_system_prompt: str = "",
+    rick_profile_enabled: bool = False,
 ) -> str:
     paragraph_number = _normalize_script_paragraph_number(paragraph_number)
     video_script_prompt = _limit_script_text(
@@ -880,6 +882,8 @@ def build_script_prompt(
 - video subject: {video_subject}
 - number of paragraphs: {paragraph_number}
 """.rstrip()
+    if rick_profile_enabled:
+        language = rick_quality.PROFILE.language
     if language:
         prompt += f"\n- language: {language}"
     if video_script_prompt:
@@ -889,6 +893,8 @@ def build_script_prompt(
 {video_script_prompt}
 """.rstrip()
 
+    if rick_profile_enabled:
+        prompt += "\n\n" + rick_quality.SCRIPT_INSTRUCTIONS
     return prompt
 
 
@@ -899,6 +905,7 @@ def generate_script(
     video_script_prompt: str = "",
     custom_system_prompt: str = "",
     app_config=None,
+    rick_profile_enabled: bool = False,
 ) -> str:
     paragraph_number = _normalize_script_paragraph_number(paragraph_number)
     video_script_prompt = _limit_script_text(
@@ -913,6 +920,7 @@ def generate_script(
         paragraph_number=paragraph_number,
         video_script_prompt=video_script_prompt,
         custom_system_prompt=custom_system_prompt,
+        rick_profile_enabled=rick_profile_enabled,
     )
     final_script = ""
     logger.info(
@@ -956,7 +964,8 @@ def generate_script(
         # Join the selected paragraphs into a single string
         return "\n\n".join(paragraphs)
 
-    for i in range(_max_retries):
+    attempts = 1 if rick_profile_enabled else _max_retries
+    for i in range(attempts):
         try:
             if app_config is None:
                 response = _generate_response(prompt=prompt)
@@ -976,13 +985,18 @@ def generate_script(
             if candidate and "当日额度已消耗完" in candidate:
                 raise ValueError(candidate)
 
+            if candidate and rick_profile_enabled:
+                diagnostic = rick_quality.estimate_script_duration(candidate)
+                if diagnostic.code == "invalid_script":
+                    raise ValueError(diagnostic.message)
+                logger.info(diagnostic.message)
             if candidate:
                 final_script = candidate
                 break
         except Exception as e:
             logger.error(f"failed to generate script: {e}")
 
-        if i < _max_retries - 1:
+        if i < attempts - 1:
             logger.warning(f"failed to generate video script, trying again... {i + 1}")
     if not final_script:
         logger.error("failed to generate video script after retries")
