@@ -101,7 +101,9 @@ def seed_startup_widgets(session_state, set_widget, *, ui_config=None, app_confi
         ("video_source_select", video_source),
         ("video_concat_mode_select", ui["video_concat_mode"]),
         (f"video_aspect_for_{video_source}",
-         ui.get(f"video_aspect_{video_source}", ui["video_aspect_pixabay"])),
+         (ui_config or {}).get(
+             f"video_aspect_{video_source}", ui["video_aspect_pixabay"]
+         )),
         ("video_fit_mode_select", ui["video_fit_mode"]),
         ("video_clip_duration_select", ui["video_clip_duration"]),
         ("video_clip_speed_slider", ui["video_clip_speed"]),
