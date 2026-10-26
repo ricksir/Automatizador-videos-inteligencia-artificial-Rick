@@ -1074,10 +1074,26 @@ def combine_videos(
             finally:
                 close_clip(reader)
 
+        # Two readers can disagree by a few MP3 encoder-padding frames.
+        # Reject a genuinely stale plan, but extend the last assigned scene
+        # just enough to cover the real audio + the normal frame safety margin.
+        planned_duration = float(scene_timeline["duration_seconds"])
+        if (
+            not math.isfinite(planned_duration)
+            or abs(planned_duration - audio_duration) > 0.05
+        ):
+            raise ValueError(
+                "A duração real da narração não coincide com o plano de cenas. "
+                "Regenere o plano antes de montar o vídeo."
+            )
+        safety_tail = max(
+            _VIDEO_DURATION_SAFETY_MARGIN,
+            audio_duration - planned_duration + _VIDEO_DURATION_SAFETY_MARGIN,
+        )
         slices = rick_scene_render.plan_source_slices(
             scene_timeline, source_specs,
             clip_speed=normalized_clip_speed,
-            safety_tail_seconds=_VIDEO_DURATION_SAFETY_MARGIN,
+            safety_tail_seconds=safety_tail,
         )
         for part in slices:
             subclipped_items.append(
