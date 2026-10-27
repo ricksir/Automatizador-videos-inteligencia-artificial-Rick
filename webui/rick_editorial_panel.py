@@ -110,31 +110,48 @@ def render_editorial_panel(
                     + " • Candidato automático: "
                     + str(scene.get("assigned_material_file") or "não encontrado")
                 )
-                selected_default = old.get("assigned_material_file")
+                # Historical suggestions are NOT verified semantic matches.
+                # Do not silently default to the first cached clip (which can
+                # be entirely unrelated, e.g. a waterfall for Gramsci).
+                selected_default = (
+                    old.get("assigned_material_file")
+                    if old.get("editorial_review") == "approved_by_human"
+                    else None
+                )
                 if selected_default not in paths:
-                    selected_default = scene.get("assigned_material_file")
-                index = choices.index(selected_default) if selected_default in paths else 0
+                    selected_default = None
+                review_choices = [None, *choices]
                 chosen = st.selectbox(
                     "Arquivo de vídeo (existente)",
-                    choices, index=index,
-                    key=f"rick_editorial_material_{selected_id}_{idx}",
+                    review_choices,
+                    index=review_choices.index(selected_default),
+                    format_func=lambda name: (
+                        name if name is not None else "— Selecione um clipe —"
+                    ),
+                    key=f"rick_editorial_material_v2_{selected_id}_{idx}",
                 )
-                source_path = paths[chosen]
-                provenance = workspace["source_metadata"].get(chosen, {})
-                st.caption(
-                    "Fonte registrada: " + str(provenance.get("provider") or "não informada")
-                    + " • Página de origem: "
-                    + str(provenance.get("source_page") or "não informada")
-                )
-                if st.checkbox(
-                    "Pré-visualizar clipe",
-                    value=(idx == 1),
-                    key=f"rick_editorial_show_video_{selected_id}_{idx}",
-                ):
-                    try:
-                        st.video(source_path)
-                    except (OSError, ValueError):
-                        st.warning("Não foi possível reproduzir esse clipe no navegador.")
+                if chosen is not None:
+                    source_path = paths[chosen]
+                    provenance = workspace["source_metadata"].get(chosen, {})
+                    st.caption(
+                        "Fonte registrada: " + str(provenance.get("provider") or "não informada")
+                        + " • Página de origem: "
+                        + str(provenance.get("source_page") or "não informada")
+                    )
+                    if st.checkbox(
+                        "Pré-visualizar clipe",
+                        value=(idx == 1),
+                        key=f"rick_editorial_show_video_v2_{selected_id}_{idx}",
+                    ):
+                        try:
+                            st.video(source_path)
+                        except (OSError, ValueError):
+                            st.warning("Não foi possível reproduzir esse clipe no navegador.")
+                else:
+                    st.caption(
+                        "Nenhum vídeo selecionado. O candidato automático não "
+                        "é uma confirmação de correspondência com o roteiro."
+                    )
                 review = st.radio(
                     "Decisão editorial",
                     ["Pendente", "Aprovar", "Rejeitar"],
