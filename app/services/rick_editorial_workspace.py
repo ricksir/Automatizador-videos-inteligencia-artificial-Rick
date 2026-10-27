@@ -102,7 +102,7 @@ def _reconstruct_legacy_preview(
     if not isinstance(script, str) or not script.strip():
         raise ValueError("Tarefa sem prévia por cena e sem texto do roteiro preservado.")
     records = manifest.get("material_sources")
-    if not isinstance(records, list) or not records or not safe_paths:
+    if not isinstance(records, list) or not records:
         raise ValueError(
             "Tarefa antiga sem materiais de banco registrados e disponíveis. "
             "Não é possível reconstruir os candidatos sem esses arquivos."
@@ -251,10 +251,14 @@ def load_review_workspace(
     # Manually imported MP4s (including local still-image conversions) are
     # task-owned, integrity-checked and recorded outside the original manifest.
     # Import here to avoid a module-import cycle with task_folder().
-    from app.services.rick_editorial_assets import load_editorial_assets
+    from app.services.rick_editorial_assets import (
+        excluded_editorial_materials, load_editorial_assets,
+    )
 
     editorial_paths, editorial_metadata = load_editorial_assets(tasks_root, task_id)
     paths.update(editorial_paths)
+    for rejected_name in excluded_editorial_materials(tasks_root, task_id):
+        paths.pop(rejected_name, None)
     preview = manifest.get("rick_scene_candidate_preview")
     recovered = not isinstance(preview, dict)
     if recovered:
@@ -291,7 +295,7 @@ def load_review_workspace(
                 "search_term": str(record.get("search_term") or "")[:150],
                 "asset_id": str(record.get("asset_id") or "")[:100],
             }
-    source_metadata.update(editorial_metadata)
+    source_metadata.update({name: meta for name, meta in editorial_metadata.items() if name in paths})
     return {
         "task_id": task_id,
         "task_dir": str(folder),
