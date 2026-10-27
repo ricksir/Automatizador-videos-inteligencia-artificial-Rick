@@ -431,6 +431,74 @@ def test_editorial_ui_requires_explicit_video_choice_when_unverified():
     assert "index=review_choices.index(selected_default)" in text
     assert 'if old.get("editorial_review") == "approved_by_human"' in text
     assert "if chosen is not None:" in text
-    # Distinct widget identity keeps old Streamlit choices from leaking into reviews.
-    assert "rick_editorial_material_v3_" in text
+    # Only a previously *saved human approval* can prepopulate a clip.
+    # Candidates (even highly ranked ones) must start at the None placeholder.
+    assert "review_choices = [None, *ranked]" in text
+    assert 'old.get("assigned_material_file")' in text
+    assert 'if old.get("editorial_review") == "approved_by_human" else None' in text
+    assert "if selected_default not in paths:" in text
+    assert "selected_default = None" in text
     assert "selected_default = scene.get(\"assigned_material_file\")" not in text
+    # Per-task/per-scene v4 key avoids reusing another scene's Streamlit selection.
+    assert 'key=f"rick_editorial_material_v4_{selected_id}_{idx}"' in text
+    assert "on_change=_clear_scene_evidence" in text
+    assert "args=(selected_id, idx)" in text
+    # Clip changes clear evidence before a fresh saved approval can be issued.
+    assert text.index("chosen = st.selectbox(") < text.index("with st.form(")
+    assert "chosen is None or not note.strip()" in text
+    assert "or not content_checked or not rights_checked" in text
+
+
+def test_changing_clip_clears_only_target_scene_and_task(monkeypatch):
+    """Streamlit evidence must not leak into other scenes or other tasks."""
+    from types import SimpleNamespace
+    from webui import rick_editorial_panel as panel
+
+    state = {}
+    for task_id in ("task-a", "task-b"):
+        for scene_number in (1, 2):
+            suffix = f"{task_id}_{scene_number}"
+            state[f"rick_editorial_decision_{suffix}"] = "Aprovar"
+            state[f"rick_editorial_source_{suffix}"] = "Fonte previamente conferida"
+            state[f"rick_editorial_content_{suffix}"] = True
+            state[f"rick_editorial_rights_{suffix}"] = True
+    unchanged = {
+        key: value for key, value in state.items()
+        if not key.endswith("task-a_1")
+    }
+    monkeypatch.setattr(panel, "st", SimpleNamespace(session_state=state))
+    panel._clear_scene_evidence("task-a", 1)
+
+    assert state["rick_editorial_decision_task-a_1"] == "Pendente"
+    assert state["rick_editorial_source_task-a_1"] == ""
+    assert state["rick_editorial_content_task-a_1"] is False
+    assert state["rick_editorial_rights_task-a_1"] is False
+    for key, value in unchanged.items():
+        assert state[key] == value
+
+
+def test_ranked_metadata_never_creates_human_approval(tmp_path):
+    """Even valid ranking and checked boxes cannot approve without clip choice."""
+    from app.services.rick_visual_curation import order_review_materials
+
+    root, _, materials = create_task(tmp_path)
+    workspace = load_review_workspace(root, "task-123", materials)
+    scene = workspace["preview"]["scenes"][0]
+    ranked = order_review_materials(
+        scene, workspace["source_metadata"], sorted(workspace["paths"])
+    )
+    assert ranked
+    assert [None, *ranked][0] is None
+
+    report = save_editorial_workspace_review(
+        root, "task-123", workspace["preview_sha256"], materials,
+        [{
+            "scene_number": 1, "decision": "approve", "selected_file": None,
+            "source_note": "Uma nota de origem não equivale a escolher vídeo",
+            "content_checked": True, "rights_checked": True,
+        }],
+    )
+    assert report["status"] == "blocked"
+    assert report["human_approved_count"] == 0
+    assert report["scenes"][0]["assigned_material_file"] is None
+    assert {"scene_number": 1, "code": "file_missing_or_ambiguous"} in report["blockers"]
