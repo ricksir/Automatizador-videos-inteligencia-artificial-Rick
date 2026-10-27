@@ -43,7 +43,7 @@ def plan_source_slices(
     may otherwise leave a black flash at the end of the narration. FFmpeg
     trims the concatenation back to the original audio duration.
 
-    Each \`source_specs[name]\` is measured and validated by the caller:
+    Each source_specs[name] is measured and validated by the caller:
       {"file_path": absolute downloaded path, "duration_seconds": positive,
        "width": positive, "height": positive}
 
