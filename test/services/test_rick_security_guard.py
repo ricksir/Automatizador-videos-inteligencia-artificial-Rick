@@ -20,6 +20,7 @@ def test_allows_public_templates_and_regular_code():
         "config.example.toml", ".env.example", "pyproject.toml",
         ".github/workflows/ci.yml", "docs/rick-guide.md",
         "app/services/task.py", "test/services/test_config.py",
+        "webui/.streamlit/config.toml",
     ):
         assert not guard.risky_path(filename), filename
 
