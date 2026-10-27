@@ -49,3 +49,26 @@ necessário gerar nova tarefa **somente quando o usuário decidir**, selecionand
 "Ajustar imagens à ordem do roteiro" antes de gerar.
 
 Apenas os testes offline foram escritos até agora: execução real depende do Windows.
+
+## Complemento: recuperação do cache local
+
+A inspeção real das tarefas antigas identificou **10** registros de mídia no
+vídeo Gramsci, **19** no vídeo céu azul, e **29** clipes no cache local
+`storage/cache_videos`. As duas tarefas tinham `script.json` e vídeos
+exportados, mas não apresentavam candidatos no painel.
+
+As tarefas antigas podem perder o campo de estado `materials` ou ter nele
+caminhos provenientes de outro computador. A WebUI agora passa a pasta
+`storage/cache_videos` obtida pelo próprio aplicativo; quando o caminho
+registrado no estado não resolve, a recuperação aceita **somente nomes exatos
+já cadastrados em `material_sources[].local_file`** e arquivos existentes,
+não vazios e não simbólicos **dentro** dessa pasta confiável. Os demais
+arquivos do cache não são oferecidos para seleção. Caminhos ambíguos
+continuam excluídos. Não há busca na internet ou no sistema de arquivos
+inteiro, nem permissão para informar diretórios arbitrários.
+
+Contagem total do cache não comprova coincidência dos nomes; a conferência
+final depende da WebUI no computador do usuário. Foi adicionada cobertura
+para recuperação com estado vazio, conteúdo não registrado, ambiguidade,
+arquivo vazio e links simbólicos.
+
