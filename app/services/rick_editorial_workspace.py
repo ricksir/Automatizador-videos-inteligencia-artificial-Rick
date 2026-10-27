@@ -29,7 +29,7 @@ def task_folder(tasks_root: str | Path, task_id: str) -> Path:
         raise ValueError("Identificador de tarefa inválido.")
     root = Path(tasks_root).resolve()
     folder = root / task_id
-    if not folder.is_dir() or folder.resolve().parent != root:
+    if folder.is_symlink() or not folder.is_dir() or folder.resolve().parent != root:
         raise ValueError("Tarefa indisponível ou fora da pasta autorizada.")
     return folder
 
