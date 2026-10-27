@@ -197,7 +197,7 @@ def test_export_rejects_missing_explicit_cache_even_if_review_is_saved(tmp_path,
         "app.services.rick_review_render.voice.get_audio_duration",
         lambda _: 4.0,
     )
-    with pytest.raises(ValueError, match="bloqueada"):
+    with pytest.raises(ValueError, match="cache confiável"):
         prepare_reviewed_export(root, "sample")
 
 
