@@ -93,6 +93,15 @@ def build_scene_render_preflight(
     counts = Counter(file_names)
     segments: list[dict[str, Any]] = []
     blockers: list[dict[str, Any]] = []
+    # Candidate previews remain supported. A preview carrying human-review
+    # fields is subject to all-or-nothing approval; it must not revert to
+    # search-term-only matching when some decisions are incomplete.
+    has_editorial_review = any(
+        isinstance(scene, Mapping) and "editorial_review" in scene
+        for scene in scenes
+    )
+    if has_editorial_review and candidate_preview.get("status") != "ready_human_reviewed":
+        blockers.append({"code": "editorial_review_incomplete", "scene_number": None})
     last_end = Decimal(0)
     last_name: str | None = None
     repeated_sources = 0
@@ -111,6 +120,14 @@ def build_scene_render_preflight(
         last_end = end
         name = _filename(scene.get("assigned_material_file"))
         if scene.get("match_status") != "term_match_unverified":
+            name = None
+        if has_editorial_review and (
+            scene.get("editorial_review") != "approved_by_human"
+            or scene.get("editorial_rights_checked") is not True
+            or scene.get("editorial_content_checked") is not True
+            or not isinstance(scene.get("editorial_source_note"), str)
+            or not scene["editorial_source_note"].strip()
+        ):
             name = None
 
         if name is None:
