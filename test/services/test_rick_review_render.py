@@ -92,6 +92,60 @@ def test_approved_review_drives_exact_scene_timeline(tmp_path, monkeypatch):
     assert result["paths"] == [str(p.resolve()) for p in files]
 
 
+
+
+def test_export_media_order_follows_saved_scene_approvals(tmp_path, monkeypatch):
+    """Cache iteration order cannot change approved render input order."""
+    root, _, files = _sample(tmp_path, approve=False)
+    ws = load_review_workspace(root, "sample", [], cache_dir=_cache(root))
+    review = save_editorial_workspace_review(
+        root, "sample", ws["preview_sha256"], [str(p) for p in files],
+        [
+            {"scene_number": idx, "decision": "approve", "selected_file": name,
+             "source_note": "Clip checked by a human", "content_checked": True,
+             "rights_checked": True}
+            for idx, name in enumerate(("sea.mp4", "sky.mp4"), start=1)
+        ],
+        cache_dir=_cache(root),
+    )
+    assert review["status"] == "ready_human_reviewed"
+    monkeypatch.setattr(
+        "app.services.rick_review_render.voice.get_audio_duration",
+        lambda _: 4.0,
+    )
+    preflight = prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
+    assert preflight["paths"] == [str(files[1].resolve()), str(files[0].resolve())]
+    assert [item["source_file"] for item in preflight["timeline"]["segments"]] == [
+        "sea.mp4", "sky.mp4",
+    ]
+
+
+def test_reused_approved_clip_does_not_include_unused_cached_media(tmp_path, monkeypatch):
+    """Unrelated cached material is not an input to reviewed rendering."""
+    root, _, files = _sample(tmp_path, approve=False)
+    ws = load_review_workspace(root, "sample", [], cache_dir=_cache(root))
+    review = save_editorial_workspace_review(
+        root, "sample", ws["preview_sha256"], [str(p) for p in files],
+        [
+            {"scene_number": idx, "decision": "approve", "selected_file": "sky.mp4",
+             "source_note": "Clip checked by a human", "content_checked": True,
+             "rights_checked": True}
+            for idx in (1, 2)
+        ],
+        cache_dir=_cache(root),
+    )
+    assert review["status"] == "ready_human_reviewed"
+    monkeypatch.setattr(
+        "app.services.rick_review_render.voice.get_audio_duration",
+        lambda _: 4.0,
+    )
+    preflight = prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
+    assert preflight["paths"] == [str(files[0].resolve())]
+    assert [item["source_file"] for item in preflight["timeline"]["segments"]] == [
+        "sky.mp4", "sky.mp4",
+    ]
+
+
 def test_incomplete_review_blocks_before_any_media_render(tmp_path, monkeypatch):
     root, _, _ = _sample(tmp_path, approve=False)
     monkeypatch.setattr(
