@@ -45,6 +45,12 @@ def prepare_reviewed_export(
 ) -> dict[str, Any]:
     """Fail closed unless all scenes and available files are human-approved."""
     folder = task_folder(tasks_root, task_id)
+    # The panel and CLI must pass their app-controlled video cache. Never
+    # infer asset directories from the task manifest or scan task folders.
+    if cache_dir is None:
+        raise ValueError(
+            "Montagem bloqueada: diretório de cache confiável não informado."
+        )
     workspace = load_review_workspace(
         tasks_root, task_id, [], cache_dir=cache_dir,
     )
