@@ -1141,8 +1141,12 @@ def generate_final_videos(
     material_selections = []
     # Disabled by default. When enabled, reject missing/ambiguous assets
     # before generating any combined MP4.
-    scene_timeline = _prepare_rick_scene_render(
-        task_id, params, downloaded_videos, audio_duration
+    scene_timeline = (
+        _prepare_rick_scene_render(
+            task_id, params, downloaded_videos, audio_duration
+        )
+        if getattr(params, "rick_scene_render_enabled", False)
+        else None
     )
     avoid_repeated_materials = getattr(params, "avoid_repeated_materials", False)
     material_identities, identity_report = (
