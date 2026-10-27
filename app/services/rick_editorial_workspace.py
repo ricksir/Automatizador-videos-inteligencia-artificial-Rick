@@ -128,9 +128,20 @@ def load_review_workspace(
                 stored = saved["review"]
         except (OSError, UnicodeError, json.JSONDecodeError):
             pass
+    source_metadata = {}
+    for record in manifest.get("material_sources", []):
+        if not isinstance(record, dict):
+            continue
+        name = record.get("local_file")
+        if name in paths and name not in source_metadata:
+            source_metadata[name] = {
+                "provider": str(record.get("provider") or "não informado")[:80],
+                "source_page": str(record.get("source_page") or "")[:400],
+            }
     return {
         "task_id": task_id,
         "task_dir": str(folder),
+        "source_metadata": source_metadata,
         "preview": preview,
         "paths": paths,
         "saved_review": stored,
