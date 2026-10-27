@@ -149,3 +149,31 @@ def inspect_visual_scenes(
             "Imagens do Wikimedia Commons exigem conferência de licença."
         ),
     }
+
+
+def retained_human_decisions(saved_scenes: Sequence[Mapping], *,
+                             exclude_scene: int | None = None) -> list[dict]:
+    """Preserve previously saved decisions when editing only one scene.
+
+    Passing them back through build_editorial_review forces revalidation.
+    No inference from automatic candidates to approved choices is permitted.
+    """
+    if not isinstance(saved_scenes, (list, tuple)):
+        return []
+    decisions = []
+    for number, scene in enumerate(saved_scenes[:60], 1):
+        if number == exclude_scene or not isinstance(scene, Mapping):
+            continue
+        status = scene.get("editorial_review")
+        if status == "rejected":
+            decisions.append({"scene_number": number, "decision": "reject"})
+        elif status == "approved_by_human":
+            decisions.append({
+                "scene_number": number,
+                "decision": "approve",
+                "selected_file": scene.get("assigned_material_file"),
+                "source_note": scene.get("editorial_source_note"),
+                "content_checked": scene.get("editorial_content_checked") is True,
+                "rights_checked": scene.get("editorial_rights_checked") is True,
+            })
+    return decisions
