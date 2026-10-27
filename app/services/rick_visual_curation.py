@@ -12,9 +12,9 @@ from collections.abc import Mapping, Sequence
 from urllib.parse import urlencode
 
 _PERSON_TITLE = re.compile(
-    r"\b(?:fil[oó]sofa?|cientista|historiador(?:a)?|escritor(?:a)?|"
+    r"\\b(?:fil[oó]sof[oa]|cientista|historiador(?:a)?|escritor(?:a)?|"
     r"presidente|pol[ií]tic[oa]|pintor(?:a)?|m[uú]sic[oa]|autor(?:a)?)"
-    r"\s+(?:[a-zà-ÿ]+\s+)?([a-zà-ÿ]{4,}(?:\s+[a-zà-ÿ]{4,})?)",
+    r"\\s+([a-zà-ÿ]{4,})(?:\\s+([a-zà-ÿ]{4,}))?",
     flags=re.IGNORECASE,
 )
 _STOP = frozenset({
@@ -40,11 +40,15 @@ def person_anchor(subject: str) -> str | None:
     match = _PERSON_TITLE.search(subject[:500])
     if not match:
         return None
-    raw = match.group(1).split()
-    meaningful = [part for part in raw if _norm(part) not in _STOP]
-    if not meaningful:
+    first = match.group(1)
+    second = match.group(2)
+    if _norm(first) in _STOP:
         return None
-    return " ".join(meaningful[:2]).title()
+    # A second word is accepted only if explicitly capitalized in the
+    # subject; otherwise it can be a verb ("Gramsci estudou").
+    if second and second[0].isupper() and _norm(second) not in _STOP:
+        return f"{first} {second}".title()
+    return first.title()
 
 
 def commons_search_url(query: str) -> str:
