@@ -20,6 +20,7 @@ from app.services.rick_editorial_workspace import (
 from app.services.rick_visual_curation import (
     inspect_visual_scenes,
     retained_human_decisions,
+    order_review_materials,
 )
 
 
@@ -187,15 +188,22 @@ def render_editorial_panel(
                 )
                 if selected_default not in paths:
                     selected_default = None
-                review_choices = [None, *choices]
+                ranked = order_review_materials(
+                    scene, workspace["source_metadata"], choices,
+                )
+                review_choices = [None, *ranked]
+                def describe_option(name):
+                    if name is None:
+                        return "— Selecione um clipe —"
+                    info = workspace["source_metadata"].get(name, {})
+                    term = str(info.get("search_term") or "sem busca registrada")[:55]
+                    return f"{term} · {name}"
                 chosen = st.selectbox(
                     "Arquivo de vídeo (existente)",
                     review_choices,
                     index=review_choices.index(selected_default),
-                    format_func=lambda name: (
-                        name if name is not None else "— Selecione um clipe —"
-                    ),
-                    key=f"rick_editorial_material_v2_{selected_id}_{idx}",
+                    format_func=describe_option,
+                    key=f"rick_editorial_material_v3_{selected_id}_{idx}",
                 )
                 if chosen is not None:
                     source_path = paths[chosen]
