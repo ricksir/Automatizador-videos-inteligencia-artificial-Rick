@@ -6,7 +6,6 @@ No user-entered paths are opened; clips come from recorded task material paths.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from pathlib import Path
 from typing import Any
 
 import streamlit as st
