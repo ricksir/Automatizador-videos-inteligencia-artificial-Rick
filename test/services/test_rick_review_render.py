@@ -14,6 +14,10 @@ from app.services.rick_review_render import (
 )
 
 
+def _cache(root: Path) -> Path:
+    return root.parent / "trusted-cache"
+
+
 def _sample(tmp_path, *, approve=True, subtitles=False):
     root = tmp_path / "tasks"
     folder = root / "sample"
@@ -49,10 +53,14 @@ def _sample(tmp_path, *, approve=True, subtitles=False):
     (folder / "script.json").write_text(json.dumps(manifest), encoding="utf-8")
     (folder / "audio.mp3").write_bytes(b"original audio")
     (folder / "final-1.mp4").write_bytes(b"DO-NOT-REPLACE")
-    files = [folder / "sky.mp4", folder / "sea.mp4"]
+    cache = _cache(root)
+    cache.mkdir()
+    files = [cache / "sky.mp4", cache / "sea.mp4"]
     for file in files:
         file.write_bytes(b"synthetic file stub")
-    workspace = load_review_workspace(root, "sample", [str(p) for p in files])
+    # A restarted task may have no transient state.materials. The UI and
+    # CLI explicitly supply the app-controlled cache for recovery.
+    workspace = load_review_workspace(root, "sample", [], cache_dir=cache)
     if approve:
         choices = [
             {"scene_number": idx, "decision": "approve", "selected_file": file.name,
@@ -62,7 +70,7 @@ def _sample(tmp_path, *, approve=True, subtitles=False):
         ]
         report = save_editorial_workspace_review(
             root, "sample", workspace["preview_sha256"],
-            [str(p) for p in files], choices,
+            [str(p) for p in files], choices, cache_dir=cache,
         )
         assert report["status"] == "ready_human_reviewed"
     return root, folder, files
@@ -74,7 +82,7 @@ def test_approved_review_drives_exact_scene_timeline(tmp_path, monkeypatch):
         "app.services.rick_review_render.voice.get_audio_duration",
         lambda _: 4.0,
     )
-    result = prepare_reviewed_export(root, "sample")
+    result = prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
     assert result["timeline"]["status"] == "ready_metadata_only"
     assert [s["source_file"] for s in result["timeline"]["segments"]] == [
         "sky.mp4", "sea.mp4",
@@ -91,7 +99,7 @@ def test_incomplete_review_blocks_before_any_media_render(tmp_path, monkeypatch)
         lambda **_: pytest.fail("No rendering with an incomplete review"),
     )
     with pytest.raises(ValueError, match="Aprove TODAS"):
-        export_reviewed_video(root, "sample")
+        export_reviewed_video(root, "sample", cache_dir=_cache(root))
 
 
 def test_changed_manifest_invalidates_saved_review(tmp_path, monkeypatch):
@@ -101,7 +109,7 @@ def test_changed_manifest_invalidates_saved_review(tmp_path, monkeypatch):
     manifest["rick_scene_candidate_preview"]["scenes"][0]["text"] = "Alterado"
     manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="Aprove TODAS"):
-        prepare_reviewed_export(root, "sample")
+        prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
 
 
 def test_audio_duration_mismatch_blocks(tmp_path, monkeypatch):
@@ -111,7 +119,7 @@ def test_audio_duration_mismatch_blocks(tmp_path, monkeypatch):
         lambda _: 5.2,
     )
     with pytest.raises(ValueError, match="duração"):
-        prepare_reviewed_export(root, "sample")
+        prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
 
 
 def test_deleted_source_blocks(tmp_path, monkeypatch):
@@ -122,7 +130,7 @@ def test_deleted_source_blocks(tmp_path, monkeypatch):
         lambda _: 4.0,
     )
     with pytest.raises(ValueError, match="bloqueada"):
-        prepare_reviewed_export(root, "sample")
+        prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
 
 
 def test_absent_subtitles_block_unless_explicitly_disabled(tmp_path, monkeypatch):
@@ -132,8 +140,8 @@ def test_absent_subtitles_block_unless_explicitly_disabled(tmp_path, monkeypatch
         lambda _: 4.0,
     )
     with pytest.raises(ValueError, match="subtitle.srt"):
-        prepare_reviewed_export(root, "sample")
-    result = prepare_reviewed_export(root, "sample", without_subtitles=True)
+        prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
+    result = prepare_reviewed_export(root, "sample", cache_dir=_cache(root), without_subtitles=True)
     assert result["subtitle"] == ""
 
 
@@ -159,7 +167,7 @@ def test_mock_export_never_overwrites_original_or_calls_remote(tmp_path, monkeyp
 
     monkeypatch.setattr("app.services.rick_review_render.video.combine_videos", combine)
     monkeypatch.setattr("app.services.rick_review_render.video.generate_video", finalize)
-    out = export_reviewed_video(root, "sample")
+    out = export_reviewed_video(root, "sample", cache_dir=_cache(root))
     assert Path(out["output"]).is_file()
     assert Path(out["report"]).is_file()
     assert out["status"] == "rendered_from_human_review"
@@ -180,4 +188,44 @@ def test_refuses_symlinked_narration(tmp_path, monkeypatch):
     except OSError:
         pytest.skip("Symlink creation not available in this Windows environment")
     with pytest.raises(ValueError, match="não autorizado"):
+        prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
+
+
+def test_export_rejects_missing_explicit_cache_even_if_review_is_saved(tmp_path, monkeypatch):
+    root, _, _ = _sample(tmp_path)
+    monkeypatch.setattr(
+        "app.services.rick_review_render.voice.get_audio_duration",
+        lambda _: 4.0,
+    )
+    with pytest.raises(ValueError, match="bloqueada"):
         prepare_reviewed_export(root, "sample")
+
+
+def test_task_folder_files_do_not_replace_missing_approved_cache_assets(tmp_path, monkeypatch):
+    root, folder, files = _sample(tmp_path)
+    for original in files:
+        (folder / original.name).write_bytes(original.read_bytes())
+        original.unlink()
+    monkeypatch.setattr(
+        "app.services.rick_review_render.voice.get_audio_duration",
+        lambda _: 4.0,
+    )
+    with pytest.raises(ValueError, match="bloqueada"):
+        prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
+
+
+def test_export_rejects_cached_symlink_to_external_file(tmp_path, monkeypatch):
+    root, _, files = _sample(tmp_path)
+    outside = tmp_path / "external-video.mp4"
+    outside.write_bytes(b"external file")
+    files[1].unlink()
+    try:
+        files[1].symlink_to(outside)
+    except (NotImplementedError, OSError):
+        pytest.skip("Symlinks disabled in this environment")
+    monkeypatch.setattr(
+        "app.services.rick_review_render.voice.get_audio_duration",
+        lambda _: 4.0,
+    )
+    with pytest.raises(ValueError, match="bloqueada"):
+        prepare_reviewed_export(root, "sample", cache_dir=_cache(root))
