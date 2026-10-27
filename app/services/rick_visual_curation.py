@@ -181,3 +181,31 @@ def retained_human_decisions(saved_scenes: Sequence[Mapping], *,
                 "rights_checked": scene.get("editorial_rights_checked") is True,
             })
     return decisions
+
+
+def order_review_materials(
+    scene: Mapping,
+    source_metadata: Mapping[str, Mapping],
+    available_names: Sequence[str],
+) -> list[str]:
+    """Metadata-only ranking. Nothing is selected or verified automatically."""
+    if not isinstance(scene, Mapping) or not isinstance(source_metadata, Mapping):
+        raise ValueError("invalid review data")
+    if not isinstance(available_names, (list, tuple)):
+        raise ValueError("invalid available names")
+    search = _norm(str(scene.get("search_term") or ""))
+    scene_tokens = set(_norm(str(scene.get("text") or "")).split()) - _STOP
+
+    def order(name: str) -> tuple:
+        meta = source_metadata.get(name, {})
+        if not isinstance(meta, Mapping):
+            meta = {}
+        term = _norm(str(meta.get("search_term") or ""))
+        tokens = set(term.split()) - _STOP
+        exact = bool(search and search == term)
+        shared = len(scene_tokens & tokens)
+        return (-int(exact), -shared, name.casefold())
+    return sorted(
+        {name for name in available_names if isinstance(name, str)},
+        key=order,
+    )
