@@ -363,7 +363,7 @@ def test_legacy_missing_state_duration_uses_existing_audio_mp3(tmp_path, monkeyp
     original = (folder / "script.json").read_bytes()
     ws = load_review_workspace(root, "task-123", materials)
     assert ws["recovered_preview"] is True
-    assert ws["preview"]["duration_seconds"] == 4.0
+    assert ws["preview"]["scenes"][-1]["end_seconds"] == 4.0
     report = save_editorial_workspace_review(
         root, "task-123", ws["preview_sha256"], materials, approvals()
     )
@@ -384,7 +384,7 @@ def test_legacy_duration_prefers_recorded_measurement_over_audio_mp3(
 
     monkeypatch.setattr(voice, "get_audio_duration", should_not_measure)
     ws = load_review_workspace(root, "task-123", materials, audio_duration=4.0)
-    assert ws["preview"]["duration_seconds"] == 4.0
+    assert ws["preview"]["scenes"][-1]["end_seconds"] == 4.0
 
 
 def test_legacy_rejects_empty_audio_mp3_and_does_not_use_final_video(
