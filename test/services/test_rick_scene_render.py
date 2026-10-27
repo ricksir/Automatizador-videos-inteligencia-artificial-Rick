@@ -26,10 +26,13 @@ def _specs(a=20, b=20):
 
 def test_respects_scene_order_and_reuses_nonadjacent_source_from_new_offset():
     segments = plan_source_slices(_timeline(), _specs())
-    assert [x["source_file"] for x in segments] == ["a.mp4", "b.mp4", "a.mp4"]
-    assert [x["scene_number"] for x in segments] == [1, 2, 3]
+    assert [x["source_file"] for x in segments] == ["a.mp4", "b.mp4", "a.mp4", "a.mp4"]
+    assert [x["scene_number"] for x in segments] == [1, 2, 3, 3]
     assert segments[0]["source_start_seconds"] == 0
     assert segments[2]["source_start_seconds"] == 3.5
+    # The 100ms frame-safety tail belongs to the last scene only.
+    assert segments[-1]["duration_seconds"] == pytest.approx(0.1)
+    assert segments[-1]["source_start_seconds"] == pytest.approx(6.0)
     assert sum(x["duration_seconds"] for x in segments) == pytest.approx(9.6)
     assert all(x["file_path"].startswith("C:") for x in segments)
 
