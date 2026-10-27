@@ -8,6 +8,7 @@ from app.services.rick_visual_curation import (
     inspect_visual_scenes,
     person_anchor,
     retained_human_decisions,
+    order_review_materials,
 )
 
 
@@ -103,6 +104,20 @@ class VisualCurationTests(unittest.TestCase):
         self.assertTrue(previous[0]["content_checked"])
         self.assertTrue(previous[0]["rights_checked"])
         self.assertEqual(previous[0]["selected_file"], "a.mp4")
+
+    def test_candidate_sort_uses_query_then_narration_metadata_only(self):
+        scene = {"search_term": "Gramsci theory", "text": "Gramsci estudou a sociedade"}
+        meta = {
+            "waterfall.mp4": {"search_term": "nature waterfall"},
+            "gr.mp4": {"search_term": "Gramsci theory"},
+            "history.mp4": {"search_term": "sociedade history"},
+        }
+        ranked = order_review_materials(
+            scene, meta, ["waterfall.mp4", "history.mp4", "gr.mp4"]
+        )
+        self.assertEqual(ranked[0], "gr.mp4")
+        self.assertEqual(ranked[-1], "waterfall.mp4")
+        # A rank is never an approval or an image identity assertion.
 
     def test_no_automatic_generation_or_secrets(self):
         # Importing the module never fetches, converts, publishes or chooses
