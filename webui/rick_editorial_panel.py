@@ -161,7 +161,7 @@ def render_editorial_panel(
             )
             with st.expander(
                 f"Cena {idx} — {scene.get('start_seconds')}–"
-                f"{scene.get('end_seconds')} s", expanded=(idx == 1),
+                f"{scene.get('end_seconds')} s", expanded=(mode == "Uma cena por vez" or idx == 1),
             ):
                 st.write(str(scene.get("text") or "Sem texto")[:2000])
                 st.caption(
