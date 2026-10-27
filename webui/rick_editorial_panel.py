@@ -48,7 +48,10 @@ def render_editorial_panel(
         media_paths = state.get("materials", [])
         if not isinstance(media_paths, list):
             media_paths = []
-        workspace = load_review_workspace(tasks_root, selected_id, media_paths)
+        workspace = load_review_workspace(
+            tasks_root, selected_id, media_paths,
+            audio_duration=state.get("audio_duration"),
+        )
     except (ValueError, OSError) as exc:
         st.warning(str(exc))
         return
@@ -64,6 +67,12 @@ def render_editorial_panel(
         )
         return
 
+    if workspace["recovered_preview"]:
+        st.info(
+            "Prévia reconstruída localmente a partir dos dados da tarefa antiga. "
+            "Os intervalos são estimados; nenhuma consulta à IA, download ou "
+            "renderização foi realizada. Confira cada cena antes de aprovar."
+        )
     saved = workspace["saved_review"] or {}
     old_scenes = saved.get("scenes", []) if isinstance(saved, dict) else []
     if not isinstance(old_scenes, list):
@@ -164,6 +173,7 @@ def render_editorial_panel(
         report = save_editorial_workspace_review(
             tasks_root, selected_id, workspace["preview_sha256"],
             list(paths.values()), decisions,
+            audio_duration=state.get("audio_duration"),
         )
     except (ValueError, OSError) as exc:
         st.error(f"Falha ao salvar revisão: {exc}")
