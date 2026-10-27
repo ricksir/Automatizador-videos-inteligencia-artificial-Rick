@@ -208,3 +208,82 @@ def import_editorial_material(
     finally:
         if temporary_image is not None:
             temporary_image.unlink(missing_ok=True)
+
+_EXCLUSIONS = "rick_editorial_exclusions.json"
+_SAFE_VIDEO_NAME = re.compile(r"[A-Za-z0-9._-]{1,180}\\.(?:mp4|mov|mkv|avi|webm)\\Z", re.IGNORECASE)
+
+
+def excluded_editorial_materials(tasks_root: str | Path, task_id: str) -> set[str]:
+    """Task-wide manual rejection; absent names cannot silently reappear."""
+    folder = task_folder(tasks_root, task_id)
+    source = folder / _EXCLUSIONS
+    if source.is_symlink():
+        raise ValueError("Lista de exclusões de mídias não autorizada.")
+    if not source.exists():
+        return set()
+    if not source.is_file() or source.stat().st_size > 40_000:
+        raise ValueError("Lista de exclusões de mídias inválida.")
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Não foi possível ler as mídias descartadas.") from exc
+    names = data.get("filenames") if isinstance(data, dict) and data.get("version") == 1 else None
+    if not isinstance(names, list) or len(names) > 250 or any(
+        not isinstance(name, str) or not _SAFE_VIDEO_NAME.fullmatch(name) for name in names
+    ):
+        raise ValueError("Lista de exclusões de mídias inválida.")
+    return set(names)
+
+
+def exclude_editorial_material(tasks_root: str | Path, task_id: str, name: str) -> None:
+    """Hide a human-rejected basename throughout this task without deleting media."""
+    folder = task_folder(tasks_root, task_id)
+    if not isinstance(name, str) or not _SAFE_VIDEO_NAME.fullmatch(name):
+        raise ValueError("Nome de mídia inválido.")
+    excluded = excluded_editorial_materials(tasks_root, task_id)
+    excluded.add(name)
+    if len(excluded) > 250:
+        raise ValueError("Limite de exclusões atingido.")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, dir=folder,
+            prefix=".rick-exclusions-", suffix=".tmp",
+        ) as dest:
+            temporary = Path(dest.name)
+            json.dump(
+                {"version": 1, "filenames": sorted(excluded)}, dest,
+                ensure_ascii=False, indent=2,
+            )
+        os.replace(temporary, folder / _EXCLUSIONS)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def restore_editorial_material(tasks_root: str | Path, task_id: str, name: str) -> None:
+    """Allow an explicit human undo of a task-wide clip rejection."""
+    if not isinstance(name, str) or not _SAFE_VIDEO_NAME.fullmatch(name):
+        raise ValueError("Nome de mídia inválido.")
+    excluded = excluded_editorial_materials(tasks_root, task_id)
+    if name not in excluded:
+        return
+    excluded.remove(name)
+    folder = task_folder(tasks_root, task_id)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, dir=folder,
+            prefix=".rick-exclusions-", suffix=".tmp",
+        ) as dest:
+            temporary = Path(dest.name)
+            json.dump(
+                {"version": 1, "filenames": sorted(excluded)}, dest,
+                ensure_ascii=False, indent=2,
+            )
+        os.replace(temporary, folder / _EXCLUSIONS)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
