@@ -16,6 +16,12 @@ from app.services.rick_editorial_workspace import (
     load_review_workspace,
     save_editorial_workspace_review,
 )
+from app.services.rick_editorial_assets import (
+    excluded_editorial_materials,
+    exclude_editorial_material,
+    import_editorial_material,
+    restore_editorial_material,
+)
 from app.services.rick_visual_curation import (
     inspect_visual_scenes,
     retained_human_decisions,
@@ -98,11 +104,10 @@ def render_editorial_panel(
     scenes = preview["scenes"]
     if not paths:
         st.warning(
-            "Nenhum material de vídeo local está disponível no histórico desta tarefa. "
-            "A revisão de mídia exige arquivos existentes registrados pela tarefa; "
-            "não será usado um caminho digitado manualmente."
+            "Nenhum clipe registrado está disponível. É possível adicionar "
+            "material local apropriado abaixo, sem modificar o roteiro ou "
+            "recuperar mídias de forma automática."
         )
-        return
 
     if workspace["recovered_preview"]:
         st.info(
@@ -114,6 +119,31 @@ def render_editorial_panel(
     old_scenes = saved.get("scenes", []) if isinstance(saved, dict) else []
     if not isinstance(old_scenes, list):
         old_scenes = []
+    # Files removed, altered or explicitly discarded cannot retain an active
+    # human approval. Keep other saved decisions and do not modify disk here.
+    invalidated = 0
+    current_scenes = []
+    for old_scene in old_scenes:
+        if (
+            isinstance(old_scene, dict)
+            and old_scene.get("editorial_review") == "approved_by_human"
+            and old_scene.get("assigned_material_file") not in paths
+        ):
+            current_scenes.append({
+                **old_scene, "editorial_review": "unreviewed",
+                "assigned_material_file": None, "editorial_source_note": None,
+                "editorial_content_checked": False,
+                "editorial_rights_checked": False,
+            })
+            invalidated += 1
+        else:
+            current_scenes.append(old_scene)
+    old_scenes = current_scenes
+    if invalidated:
+        st.warning(
+            f"{invalidated} aprovações anteriores perderam sua mídia disponível "
+            "ou tiveram clipes descartados. Revise novamente antes de exportar."
+        )
     approved_count, rejected_count = _review_progress(old_scenes, len(scenes))
     st.progress(approved_count / len(scenes))
     st.caption(
@@ -163,9 +193,27 @@ def render_editorial_panel(
             for row in curation["scenes"]
         ], hide_index=True, use_container_width=True)
 
+    excluded = excluded_editorial_materials(tasks_root, selected_id)
+    if excluded:
+        with st.expander(f"Clipes descartados nesta tarefa ({len(excluded)})", expanded=False):
+            st.caption(
+                "Descarte manual: nenhuma mídia original foi apagada. "
+                "Restaurar apenas devolve o clipe à lista; não o aprova."
+            )
+            restore_name = st.selectbox(
+                "Clipe para restaurar", sorted(excluded),
+                key=f"rick_editorial_restore_name_{selected_id}",
+            )
+            if st.button(
+                "Restaurar clipe à lista", key=f"rick_editorial_restore_{selected_id}"
+            ):
+                restore_editorial_material(tasks_root, selected_id, restore_name)
+                st.rerun()
+
     # Export is deliberately separate from the review form: saved human
     # approvals are revalidated immediately before a new MP4 is encoded.
-    if isinstance(saved, dict) and saved.get("status") == "ready_human_reviewed":
+    if (not invalidated and isinstance(saved, dict)
+            and saved.get("status") == "ready_human_reviewed"):
         with st.expander("Rick — Exportar vídeo revisado", expanded=True):
             st.success("Todas as cenas foram aprovadas e salvas manualmente.")
             st.caption(
@@ -283,6 +331,39 @@ def render_editorial_panel(
                 scene, workspace["source_metadata"], choices,
             )
             review_choices = [None, *ranked]
+            with st.expander("Adicionar vídeo ou fotografia adequada (local)", expanded=False):
+                st.caption(
+                    "Envie MP4 (até 64 MB) ou JPG/PNG (até 12 MB). Fotos são "
+                    "transformadas em vídeo vertical de 4 segundos usando FFmpeg "
+                    "local, sem IA ou download. A importação não aprova o material."
+                )
+                uploaded = st.file_uploader(
+                    "Arquivo de vídeo ou foto", type=["mp4", "jpg", "jpeg", "png"],
+                    key=f"rick_editorial_upload_v5_{selected_id}_{idx}",
+                )
+                origin = st.text_input(
+                    "Origem e condições de uso informadas por você",
+                    key=f"rick_editorial_upload_origin_v5_{selected_id}_{idx}",
+                    max_chars=350,
+                )
+                if st.button(
+                    "Adicionar à biblioteca desta tarefa",
+                    disabled=uploaded is None or not origin.strip(),
+                    key=f"rick_editorial_import_v5_{selected_id}_{idx}",
+                ):
+                    try:
+                        added = import_editorial_material(
+                            tasks_root, selected_id, uploaded.name, uploaded.getvalue(),
+                            scene_number=idx, source_note=origin,
+                        )
+                    except (ValueError, OSError) as exc:
+                        st.error(f"Importação bloqueada: {exc}")
+                    else:
+                        st.session_state[notice_key] = (
+                            "Mídia importada, mas NÃO aprovada. "
+                            "Escolha-a no seletor e confira seu conteúdo e direitos."
+                        )
+                        st.rerun()
 
             def describe_option(name: str | None) -> str:
                 if name is None:
@@ -320,6 +401,21 @@ def render_editorial_panel(
                         st.video(source_path)
                     except (OSError, ValueError):
                         st.warning("Não foi possível reproduzir esse vídeo no navegador.")
+                if st.button(
+                    "Descartar este clipe de toda a tarefa",
+                    key=f"rick_editorial_exclude_v5_{selected_id}_{idx}",
+                    help="Remove somente das opções desta tarefa; não apaga o arquivo.",
+                ):
+                    try:
+                        exclude_editorial_material(tasks_root, selected_id, chosen)
+                    except (ValueError, OSError) as exc:
+                        st.error(f"Não foi possível descartar o clipe: {exc}")
+                    else:
+                        st.session_state[notice_key] = (
+                            "Clipe descartado desta tarefa. "
+                            "O arquivo original foi preservado."
+                        )
+                        st.rerun()
             else:
                 st.info(
                     "Escolha um vídeo acima para assistir. Nenhuma sugestão "
