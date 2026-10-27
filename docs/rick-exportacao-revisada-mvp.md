@@ -20,13 +20,22 @@ MP4 na subpasta rick_reviewed_exports de armazenamento da tarefa.
 ## Utilização na WebUI
 
 1. Abra o painel **Rick — Revisão editorial de cenas (experimental)**.
-2. Escolha a tarefa e revise cada cena.
-3. Selecione um clipe, visualize-o, confira direitos e correspondência,
-   registre a origem e aprove a cena.
-4. Salve a revisão local. Repita até que todas as cenas estejam aprovadas.
-5. Reabra o painel; na seção **Rick — Exportar vídeo revisado**,
-   confirme a exportação e pressione **Gerar novo MP4 revisado**.
-6. Confira o caminho do MP4 e do relatório mostrado na interface.
+2. Escolha a tarefa. O painel mostra o progresso **salvo** (aprovadas,
+   rejeitadas e pendentes); comece com **Uma cena por vez**.
+3. No seletor **Escolha o vídeo para assistir**, escolha um arquivo:
+   a prévia é atualizada imediatamente, sem precisar salvar primeiro.
+4. Assista ao vídeo, confira a relação com a narração e a licença. Registre
+   a fonte/condições verificadas, marque as duas conferências e escolha
+   **Aprovar** somente quando realmente adequado. Caso contrário, marque
+   **Rejeitar** ou deixe **Pendente**; não há preenchimento automático.
+5. Clique **Salvar esta cena**. O progresso é atualizado e as decisões humanas
+   de outras cenas são preservadas e revalidadas. Use **Próxima cena** e repita.
+   Ao trocar o arquivo, o painel limpa as antigas confirmações para exigir
+   nova conferência.
+6. Com todas as cenas aprovadas e salvas, abra **Rick — Exportar vídeo
+   revisado**, confirme a exportação e pressione **Gerar novo MP4 revisado**.
+7. Confira o MP4 e o relatório no disco. A exportação considera somente
+   as aprovações salvas, não as escolhas ainda em edição.
 
 Se o vídeo original utilizava legendas mas o arquivo subtitle.srt não existe,
 a exportação é bloqueada. Para permitir a saída sem legendas, marque
