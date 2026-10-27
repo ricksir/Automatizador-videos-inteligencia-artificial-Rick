@@ -347,3 +347,85 @@ def test_malformed_cache_name_cannot_escape_cache(tmp_path):
     assert available_material_paths(
         [{"local_file": "../private.mp4"}], [], cache_dir=cache
     ) == {}
+
+
+def test_legacy_missing_state_duration_uses_existing_audio_mp3(tmp_path, monkeypatch):
+    root, folder, materials = _legacy_task(tmp_path)
+    audio = folder / "audio.mp3"
+    audio.write_bytes(b"locally stored audio bytes")
+    from app.services import voice
+
+    measured = []
+    monkeypatch.setattr(
+        voice, "get_audio_duration",
+        lambda filename: measured.append(filename) or 4.0,
+    )
+    original = (folder / "script.json").read_bytes()
+    ws = load_review_workspace(root, "task-123", materials)
+    assert ws["recovered_preview"] is True
+    assert ws["preview"]["duration_seconds"] == 4.0
+    report = save_editorial_workspace_review(
+        root, "task-123", ws["preview_sha256"], materials, approvals()
+    )
+    assert report["status"] == "ready_human_reviewed"
+    assert measured == [str(audio), str(audio)]
+    assert (folder / "script.json").read_bytes() == original
+
+
+def test_legacy_duration_prefers_recorded_measurement_over_audio_mp3(
+    tmp_path, monkeypatch
+):
+    root, folder, materials = _legacy_task(tmp_path)
+    (folder / "audio.mp3").write_bytes(b"audio")
+    from app.services import voice
+
+    def should_not_measure(*_):
+        pytest.fail("Audio must not be decoded when state already has duration")
+
+    monkeypatch.setattr(voice, "get_audio_duration", should_not_measure)
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=4.0)
+    assert ws["preview"]["duration_seconds"] == 4.0
+
+
+def test_legacy_rejects_empty_audio_mp3_and_does_not_use_final_video(
+    tmp_path, monkeypatch
+):
+    root, folder, materials = _legacy_task(tmp_path)
+    (folder / "audio.mp3").write_bytes(b"")
+    (folder / "final.mp4").write_bytes(b"not a narration source")
+    from app.services import voice
+
+    def should_not_measure(*_):
+        pytest.fail("Invalid files must never be probed")
+
+    monkeypatch.setattr(voice, "get_audio_duration", should_not_measure)
+    with pytest.raises(ValueError, match="duração medida"):
+        load_review_workspace(root, "task-123", materials)
+
+
+def test_legacy_symlinked_audio_cannot_be_decoded(tmp_path, monkeypatch):
+    root, folder, materials = _legacy_task(tmp_path)
+    external = tmp_path / "external.mp3"
+    external.write_bytes(b"not task audio")
+    try:
+        (folder / "audio.mp3").symlink_to(external)
+    except (NotImplementedError, OSError):
+        pytest.skip("Symlinks disabled on this host")
+    from app.services import voice
+
+    def should_not_measure(*_):
+        pytest.fail("Symlink must be excluded")
+
+    monkeypatch.setattr(voice, "get_audio_duration", should_not_measure)
+    with pytest.raises(ValueError, match="duração medida"):
+        load_review_workspace(root, "task-123", materials)
+
+
+def test_editorial_ui_requires_explicit_video_choice_when_unverified():
+    text = (Path(__file__).parents[2] / "webui" / "rick_editorial_panel.py").read_text(
+        encoding="utf-8"
+    )
+    assert "review_choices = [None, *choices]" in text
+    assert "if chosen is not None:" in text
+    assert "rick_editorial_material_v2_" in text
+    assert "selected_default = scene.get(\"assigned_material_file\")" not in text
