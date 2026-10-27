@@ -210,7 +210,7 @@ def import_editorial_material(
             temporary_image.unlink(missing_ok=True)
 
 _EXCLUSIONS = "rick_editorial_exclusions.json"
-_SAFE_VIDEO_NAME = re.compile(r"[A-Za-z0-9._-]{1,180}\\.(?:mp4|mov|mkv|avi|webm)\\Z", re.IGNORECASE)
+_SAFE_VIDEO_NAME = re.compile(r"[A-Za-z0-9._-]{1,180}\.(?:mp4|mov|mkv|avi|webm)\Z", re.IGNORECASE)
 
 
 def excluded_editorial_materials(tasks_root: str | Path, task_id: str) -> set[str]:
