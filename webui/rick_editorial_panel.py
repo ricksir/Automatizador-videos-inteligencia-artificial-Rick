@@ -123,6 +123,44 @@ def render_editorial_panel(
             for row in curation["scenes"]
         ], hide_index=True, use_container_width=True)
 
+    # Export is deliberately separate from the review form: saved human
+    # approvals are revalidated immediately before a new MP4 is encoded.
+    if isinstance(saved, dict) and saved.get("status") == "ready_human_reviewed":
+        with st.expander("Rick — Exportar vídeo revisado", expanded=True):
+            st.success("Todas as cenas foram aprovadas manualmente.")
+            st.caption(
+                "Gera um NOVO MP4 com o áudio original e os clipes aprovados. "
+                "Não consulta IA, não baixa mídia, não publica e não substitui o MP4 antigo. "
+                "Os intervalos entre cenas permanecem estimados."
+            )
+            without_subs = st.checkbox(
+                "Permitir exportar sem legendas (se a tarefa antiga não possui subtitle.srt)",
+                key=f"rick_review_export_no_subs_{selected_id}",
+            )
+            confirmed = st.checkbox(
+                "Confirmo a exportação local usando os materiais que aprovei",
+                key=f"rick_review_export_confirm_{selected_id}",
+            )
+            if st.button(
+                "Gerar novo MP4 revisado", disabled=not confirmed,
+                key=f"rick_review_export_button_{selected_id}", type="primary",
+            ):
+                from app.services.rick_review_render import export_reviewed_video
+
+                with st.spinner("Montando cenas e áudio no FFmpeg local..."):
+                    try:
+                        new_video = export_reviewed_video(
+                            tasks_root, selected_id,
+                            cache_dir=utils.storage_dir("cache_videos"),
+                            without_subtitles=without_subs,
+                        )
+                    except (ValueError, OSError, RuntimeError) as exc:
+                        st.error(f"Exportação bloqueada: {exc}")
+                    else:
+                        st.success("MP4 revisado gerado sem modificar o original.")
+                        st.code(new_video["output"])
+                        st.caption("Relatório local: " + new_video["report"])
+
     mode = st.radio(
         "Modo de revisão", ["Uma cena por vez", "Todas as cenas"],
         horizontal=True, key=f"rick_editorial_mode_{selected_id}",
