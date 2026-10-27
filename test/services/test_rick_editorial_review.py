@@ -102,3 +102,46 @@ def test_no_automatic_approval_when_no_decisions():
     result = build_editorial_review(preview(), FILES, [])
     assert result["status"] == "blocked"
     assert result["human_approved_count"] == 0
+
+
+def test_incomplete_editorial_status_blocks_downstream_timeline():
+    result = build_editorial_review(preview(), FILES, [accept(1, "portrait.mp4")])
+    assert result["scenes"][1]["assigned_material_file"] is None
+    assert result["scenes"][1]["match_status"] == "editorial_review_required"
+    preflight = build_scene_render_preflight(result, FILES, 4)
+    assert preflight["status"] == "blocked"
+    assert preflight["segments"] == []
+
+
+def test_invalid_approval_never_preserves_old_candidate():
+    invalid = accept(1, "portrait.mp4")
+    invalid["rights_checked"] = False
+    result = build_editorial_review(preview(), FILES, [invalid, accept(2, "vote.mp4")])
+    assert result["scenes"][0]["assigned_material_file"] is None
+    assert build_scene_render_preflight(result, FILES, 4)["segments"] == []
+
+
+def test_direct_preflight_cannot_bypass_review_metadata():
+    reviewed = build_editorial_review(
+        preview(), FILES, [accept(1, "portrait.mp4"), accept(2, "vote.mp4")]
+    )
+    reviewed["scenes"][1]["editorial_review"] = "unreviewed"
+    preflight = build_scene_render_preflight(reviewed, FILES, 4)
+    assert preflight["status"] == "blocked"
+    assert preflight["segments"] == []
+
+
+def test_review_status_cannot_be_forged_without_blocker():
+    reviewed = build_editorial_review(
+        preview(), FILES, [accept(1, "portrait.mp4"), accept(2, "vote.mp4")]
+    )
+    reviewed["status"] = "blocked"
+    preflight = build_scene_render_preflight(reviewed, FILES, 4)
+    assert preflight["status"] == "blocked"
+    assert preflight["segments"] == []
+
+
+def test_original_search_term_flow_remains_compatible():
+    plain_preview = preview()
+    preflight = build_scene_render_preflight(plain_preview, FILES, 4)
+    assert preflight["status"] == "ready_metadata_only"
