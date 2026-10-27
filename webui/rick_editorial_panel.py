@@ -352,7 +352,7 @@ def render_editorial_panel(
                     key=f"rick_editorial_import_v5_{selected_id}_{idx}",
                 ):
                     try:
-                        added = import_editorial_material(
+                        import_editorial_material(
                             tasks_root, selected_id, uploaded.name, uploaded.getvalue(),
                             scene_number=idx, source_note=origin,
                         )
