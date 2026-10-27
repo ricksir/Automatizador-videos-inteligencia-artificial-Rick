@@ -121,6 +121,9 @@ class VideoParams(BaseModel):
     video_clip_speed: Optional[float] = 1.0
     match_materials_to_script: bool = False
     avoid_repeated_materials: bool = False
+    # Experimental / API-only for now: only enable after local video validation.
+    # Default False guarantees that the existing WebUI/CLI remains unchanged.
+    rick_scene_render_enabled: bool = False
     video_count: int = Field(default=1, ge=1)
 
     video_source: Optional[str] = "pexels"

@@ -43,6 +43,7 @@ from app.models.schema import (
 )
 from app.services import bgm as bgm_service
 from app.services import media_diversity
+from app.services import rick_scene_render
 from app.services.utils import video_effects
 from app.utils import file_security, logging_utils, utils
 from app.utils.subtitle_reader import moviepy_subtitles
@@ -989,6 +990,7 @@ def combine_videos(
     avoid_repeated_materials: bool = False,
     material_identities: dict[str, str] | None = None,
     diversity_report: dict | None = None,
+    scene_timeline: dict | None = None,
 ) -> str:
     # Pydantic leaves this optional default as the string "random" unless
     # explicitly provided. Normalize it once for all downstream enum access.
@@ -1032,62 +1034,140 @@ def combine_videos(
     video_duration = 0
     if avoid_repeated_materials and material_identities is None:
         material_identities, _ = media_diversity.identify_materials(video_paths)
-    for video_path in video_paths:
-        clip = None
-        try:
-            clip = _open_video_clip_quietly(video_path)
-            clip_duration = float(clip.duration)
-            clip_w, clip_h = clip.size
-            if (
-                not math.isfinite(clip_duration)
-                or clip_duration <= 0
-                or not all(
-                    math.isfinite(float(dimension)) and float(dimension) > 0
-                    for dimension in (clip_w, clip_h)
-                )
-            ):
-                raise ValueError("invalid video duration or dimensions")
-        except Exception as exc:
-            logger.warning(
-                f"skipping unreadable video source: path={video_path}, error={exc}"
-            )
-            continue
-        finally:
-            close_clip(clip)
-        
-        start_time = 0
+    if scene_timeline is not None:
+        # Every file name comes from an already downloaded file list, never a
+        # path supplied by script.json. One basename must resolve uniquely.
+        resolved_files = {}
+        for downloaded in video_paths:
+            basename = os.path.basename(downloaded)
+            if basename in resolved_files:
+                raise ValueError("scene rendering needs unambiguous downloaded filenames")
+            resolved_files[basename] = downloaded
 
-        while start_time < clip_duration:
-            end_time = min(start_time + source_clip_duration, clip_duration)
-
-            # 保留所有有效分段。
-            # 这样既不会丢掉“整段视频本身就短于 max_clip_duration”的素材，
-            # 也不会吞掉长视频最后剩下的一小段尾部内容。
-            if end_time > start_time:
-                subclipped_items.append(
-                    SubClippedVideoClip(
-                        file_path=video_path,
-                        start_time=start_time,
-                        end_time=end_time,
-                        width=clip_w,
-                        height=clip_h,
-                        source_file_path=video_path,
+        required_names = {
+            segment["source_file"] for segment in scene_timeline.get("segments", [])
+        }
+        source_specs = {}
+        for filename in sorted(required_names):
+            downloaded = resolved_files.get(filename)
+            if not downloaded:
+                raise ValueError("scene candidate not found among downloaded videos")
+            reader = None
+            try:
+                reader = _open_video_clip_quietly(downloaded)
+                clip_duration = float(reader.duration)
+                measured_width, measured_height = reader.size
+                if (
+                    not math.isfinite(clip_duration) or clip_duration < 0.05
+                    or not all(
+                        math.isfinite(float(d)) and float(d) > 0
+                        for d in (measured_width, measured_height)
                     )
+                ):
+                    raise ValueError("invalid video dimensions or duration")
+                source_specs[filename] = {
+                    "file_path": downloaded,
+                    "duration_seconds": clip_duration,
+                    "width": measured_width,
+                    "height": measured_height,
+                }
+            finally:
+                close_clip(reader)
+
+        # Two readers can disagree by a few MP3 encoder-padding frames.
+        # Reject a genuinely stale plan, but extend the last assigned scene
+        # just enough to cover the real audio + the normal frame safety margin.
+        planned_duration = float(scene_timeline["duration_seconds"])
+        if (
+            not math.isfinite(planned_duration)
+            or abs(planned_duration - audio_duration) > 0.05
+        ):
+            raise ValueError(
+                "A duração real da narração não coincide com o plano de cenas. "
+                "Regenere o plano antes de montar o vídeo."
+            )
+        safety_tail = max(
+            _VIDEO_DURATION_SAFETY_MARGIN,
+            audio_duration - planned_duration + _VIDEO_DURATION_SAFETY_MARGIN,
+        )
+        slices = rick_scene_render.plan_source_slices(
+            scene_timeline, source_specs,
+            clip_speed=normalized_clip_speed,
+            safety_tail_seconds=safety_tail,
+        )
+        for part in slices:
+            subclipped_items.append(
+                SubClippedVideoClip(
+                    file_path=part["file_path"],
+                    start_time=part["source_start_seconds"],
+                    end_time=part["source_end_seconds"],
+                    width=part["source_width"],
+                    height=part["source_height"],
+                    source_file_path=part["file_path"],
                 )
+            )
+        logger.info(
+            "Rick scene renderer enabled: {} scenes, {} slices, "
+            "timeline based on estimates (footage subject not verified)",
+            scene_timeline["scene_count"], len(subclipped_items),
+        )
+    else:
+        for video_path in video_paths:
+            clip = None
+            try:
+                clip = _open_video_clip_quietly(video_path)
+                clip_duration = float(clip.duration)
+                clip_w, clip_h = clip.size
+                if (
+                    not math.isfinite(clip_duration)
+                    or clip_duration <= 0
+                    or not all(
+                        math.isfinite(float(dimension)) and float(dimension) > 0
+                        for dimension in (clip_w, clip_h)
+                    )
+                ):
+                    raise ValueError("invalid video duration or dimensions")
+            except Exception as exc:
+                logger.warning(
+                    f"skipping unreadable video source: path={video_path}, error={exc}"
+                )
+                continue
+            finally:
+                close_clip(clip)
+            
+            start_time = 0
 
-            start_time = end_time
-            if video_concat_mode.value == VideoConcatMode.sequential.value and not avoid_repeated_materials:
-                break
+            while start_time < clip_duration:
+                end_time = min(start_time + source_clip_duration, clip_duration)
 
-    subclipped_items = _prioritize_unique_source_clips(
-        subclipped_items=subclipped_items,
-        concat_mode=video_concat_mode,
-        **({"source_usage": source_usage, "source_groups": source_groups}
-           if source_usage is not None else {}),
-    )
-    if avoid_repeated_materials:
-        subclipped_items = media_diversity.distinct_source_clips(subclipped_items, material_identities)
-        
+                # 保留所有有效分段。
+                # 这样既不会丢掉“整段视频本身就短于 max_clip_duration”的素材，
+                # 也不会吞掉长视频最后剩下的一小段尾部内容。
+                if end_time > start_time:
+                    subclipped_items.append(
+                        SubClippedVideoClip(
+                            file_path=video_path,
+                            start_time=start_time,
+                            end_time=end_time,
+                            width=clip_w,
+                            height=clip_h,
+                            source_file_path=video_path,
+                        )
+                    )
+
+                start_time = end_time
+                if video_concat_mode.value == VideoConcatMode.sequential.value and not avoid_repeated_materials:
+                    break
+
+        subclipped_items = _prioritize_unique_source_clips(
+            subclipped_items=subclipped_items,
+            concat_mode=video_concat_mode,
+            **({"source_usage": source_usage, "source_groups": source_groups}
+               if source_usage is not None else {}),
+        )
+        if avoid_repeated_materials:
+            subclipped_items = media_diversity.distinct_source_clips(subclipped_items, material_identities)
+            
     logger.debug(f"total subclipped items: {len(subclipped_items)}")
     
     # Add downloaded clips over and over until the duration of the audio (max_duration) has been reached
@@ -1250,7 +1330,20 @@ def combine_videos(
     
     # loop processed clips until the video duration covers the audio duration and the small safety margin.
     encoded_clip_files = [clip.file_path for clip in processed_clips]
-    if avoid_repeated_materials:
+    if scene_timeline is not None:
+        # The scene renderer already fixes every source and time window.
+        # Reordering/repeating clips here would destroy the narration mapping.
+        if (
+            len(processed_clips) != len(subclipped_items)
+            or video_duration + 0.05 < required_video_duration
+        ):
+            delete_files(encoded_clip_files)
+            raise RuntimeError(
+                "Montagem por cenas interrompida: uma ou mais fatias de vídeo "
+                "falharam ou não cobrem o áudio. Nenhum material fora do tema "
+                "será usado como substituto."
+            )
+    elif avoid_repeated_materials:
         processed_clips, report = media_diversity.plan_timeline(
             processed_clips, required_video_duration, material_identities,
             visible_seconds=audio_duration,
@@ -1279,6 +1372,8 @@ def combine_videos(
     # merge video clips progressively, avoid loading all videos at once to avoid memory overflow
     logger.info("starting clip merging process")
     if not processed_clips:
+        if scene_timeline is not None:
+            raise RuntimeError("Montagem por cenas sem clipes válidos")
         if avoid_repeated_materials:
             raise RuntimeError("Antirrepetição: nenhum material válido disponível para a montagem.")
         if video_paths:
