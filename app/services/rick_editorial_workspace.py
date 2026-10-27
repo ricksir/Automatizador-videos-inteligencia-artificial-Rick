@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -16,6 +17,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from app.services.rick_editorial_review import build_editorial_review
+from app.services.rick_scene_assignment import assign_scene_candidates
+from app.services.rick_scene_plan import build_scene_plan
 
 _TASK_ID = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 _EXTENSIONS = frozenset({".mp4", ".mov", ".mkv", ".webm", ".avi"})
@@ -54,6 +57,85 @@ def _preview_fingerprint(preview: Mapping[str, Any]) -> str:
         preview, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+
+def _reconstruct_legacy_preview(
+    manifest: Mapping[str, Any],
+    safe_paths: Mapping[str, str],
+    audio_duration: Any,
+) -> dict[str, Any]:
+    """Offline estimate from historical task records; never invents assets.
+
+    An old task is eligible only when its original script, downloaded stock
+    provenance, actual local files, and measured audio time still exist.
+    Reconstructed suggestions are NOT claims of visual accuracy.
+    """
+    script = manifest.get("script")
+    if not isinstance(script, str) or not script.strip():
+        raise ValueError("Tarefa antiga sem texto do roteiro preservado.")
+    records = manifest.get("material_sources")
+    if not isinstance(records, list) or not records or not safe_paths:
+        raise ValueError(
+            "Tarefa antiga sem materiais de banco registrados e disponíveis. "
+            "Não é possível reconstruir os candidatos sem esses arquivos."
+        )
+    if audio_duration is None:
+        quality = manifest.get("rick_quality")
+        if isinstance(quality, Mapping):
+            diagnostic = quality.get("audio_duration")
+            if isinstance(diagnostic, Mapping):
+                audio_duration = diagnostic.get("seconds")
+    if isinstance(audio_duration, bool):
+        audio_duration = None
+    try:
+        seconds = float(audio_duration)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "Tarefa antiga sem duração medida do áudio no estado/diagnóstico. "
+            "Não é seguro reconstruir intervalos de cenas."
+        ) from exc
+    if not math.isfinite(seconds) or seconds <= 0 or seconds > 1800:
+        raise ValueError("Duração do áudio inválida para reconstrução offline.")
+
+    params = manifest.get("params")
+    if not isinstance(params, Mapping):
+        params = {}
+    source = params.get("video_source")
+    if source not in ("pixabay", "pexels", "coverr"):
+        raise ValueError("Recuperação disponível apenas para vídeos de banco.")
+    clip = params.get("video_clip_duration", 4)
+    if isinstance(clip, bool):
+        raise ValueError("Duração de clipe histórica inválida.")
+    try:
+        clip_seconds = float(clip)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Duração de clipe histórica inválida.") from exc
+    if not math.isfinite(clip_seconds) or not 0 < clip_seconds <= 60:
+        raise ValueError("Duração de clipe histórica inválida.")
+
+    raw_terms = manifest.get("search_terms", "")
+    if isinstance(raw_terms, str):
+        terms = re.split(r"[,，]", raw_terms)
+    elif isinstance(raw_terms, list) and all(isinstance(t, str) for t in raw_terms):
+        terms = raw_terms
+    else:
+        terms = []
+    plan = build_scene_plan(
+        script, terms, seconds, target_clip_seconds=clip_seconds
+    )
+    preview = assign_scene_candidates(
+        plan, records, available_files=list(safe_paths.values())
+    )
+    preview["recovered_from_historical_records"] = True
+    preview["warnings"].append({
+        "code": "historical_offline_estimate",
+        "message": (
+            "Estimativa reconstruída de registros antigos. Trechos, tempos e "
+            "correspondências precisam de revisão humana."
+        ),
+    })
+    return preview
 
 
 def available_material_paths(
@@ -101,16 +183,21 @@ def available_material_paths(
 
 
 def load_review_workspace(
-    tasks_root: str | Path, task_id: str, state_materials: Sequence[str]
+    tasks_root: str | Path,
+    task_id: str,
+    state_materials: Sequence[str],
+    *,
+    audio_duration: Any = None,
 ) -> dict[str, Any]:
     folder = task_folder(tasks_root, task_id)
     manifest = _script_data(folder)
+    paths = available_material_paths(
+        manifest.get("material_sources", []), state_materials
+    )
     preview = manifest.get("rick_scene_candidate_preview")
-    if not isinstance(preview, dict):
-        raise ValueError(
-            "Tarefa sem prévia por cena. Habilite 'Ajustar imagens à ordem do roteiro' "
-            "e gere uma nova tarefa com materiais de banco."
-        )
+    recovered = not isinstance(preview, dict)
+    if recovered:
+        preview = _reconstruct_legacy_preview(manifest, paths, audio_duration)
     scenes = preview.get("scenes")
     if (
         not isinstance(scenes, list)
@@ -118,9 +205,6 @@ def load_review_workspace(
         or any(not isinstance(scene, dict) for scene in scenes)
     ):
         raise ValueError("Prévia de cenas inválida.")
-    paths = available_material_paths(
-        manifest.get("material_sources", []), state_materials
-    )
     stored = None
     review_path = folder / _REVIEW_FILE
     if review_path.is_file() and not review_path.is_symlink():
@@ -147,6 +231,7 @@ def load_review_workspace(
         "task_dir": str(folder),
         "source_metadata": source_metadata,
         "preview": preview,
+        "recovered_preview": recovered,
         "paths": paths,
         "saved_review": stored,
         "preview_sha256": _preview_fingerprint(preview),
@@ -159,12 +244,19 @@ def save_editorial_workspace_review(
     preview_sha256: str,
     downloaded_files: Sequence[str],
     decisions: Sequence[Mapping[str, Any]],
+    *,
+    audio_duration: Any = None,
 ) -> dict[str, Any]:
-    """Revalidate against the CURRENT preview before atomic local persistence."""
+    """Revalidate historical/live sources before atomic local persistence."""
     folder = task_folder(tasks_root, task_id)
-    preview = _script_data(folder).get("rick_scene_candidate_preview")
-    if (not isinstance(preview, dict)
-            or preview_sha256 != _preview_fingerprint(preview)):
+    manifest = _script_data(folder)
+    preview = manifest.get("rick_scene_candidate_preview")
+    if not isinstance(preview, dict):
+        safe_paths = available_material_paths(
+            manifest.get("material_sources", []), downloaded_files
+        )
+        preview = _reconstruct_legacy_preview(manifest, safe_paths, audio_duration)
+    if preview_sha256 != _preview_fingerprint(preview):
         raise ValueError("A prévia de cenas foi alterada. Recarregue a revisão.")
     report = build_editorial_review(preview, downloaded_files, decisions)
     document = {
