@@ -248,6 +248,13 @@ def load_review_workspace(
         manifest.get("material_sources", []), state_materials,
         cache_dir=cache_dir,
     )
+    # Manually imported MP4s (including local still-image conversions) are
+    # task-owned, integrity-checked and recorded outside the original manifest.
+    # Import here to avoid a module-import cycle with task_folder().
+    from app.services.rick_editorial_assets import load_editorial_assets
+
+    editorial_paths, editorial_metadata = load_editorial_assets(tasks_root, task_id)
+    paths.update(editorial_paths)
     preview = manifest.get("rick_scene_candidate_preview")
     recovered = not isinstance(preview, dict)
     if recovered:
@@ -284,6 +291,7 @@ def load_review_workspace(
                 "search_term": str(record.get("search_term") or "")[:150],
                 "asset_id": str(record.get("asset_id") or "")[:100],
             }
+    source_metadata.update(editorial_metadata)
     return {
         "task_id": task_id,
         "task_dir": str(folder),
@@ -308,19 +316,17 @@ def save_editorial_workspace_review(
 ) -> dict[str, Any]:
     """Revalidate historical/live sources before atomic local persistence."""
     folder = task_folder(tasks_root, task_id)
-    manifest = _script_data(folder)
-    preview = manifest.get("rick_scene_candidate_preview")
-    if not isinstance(preview, dict):
-        safe_paths = available_material_paths(
-            manifest.get("material_sources", []), downloaded_files,
-            cache_dir=cache_dir,
-        )
-        preview = _reconstruct_legacy_preview(
-            manifest, safe_paths, audio_duration, folder=folder
-        )
-    if preview_sha256 != _preview_fingerprint(preview):
+    # Re-resolve every file against stock provenance and the integrity-checked
+    # local editorial register. Do not trust arbitrary caller-provided paths.
+    workspace = load_review_workspace(
+        tasks_root, task_id, list(downloaded_files),
+        audio_duration=audio_duration, cache_dir=cache_dir,
+    )
+    if preview_sha256 != workspace["preview_sha256"]:
         raise ValueError("A prévia de cenas foi alterada. Recarregue a revisão.")
-    report = build_editorial_review(preview, downloaded_files, decisions)
+    report = build_editorial_review(
+        workspace["preview"], list(workspace["paths"].values()), decisions
+    )
     document = {
         "version": 1,
         "task_id": task_id,
