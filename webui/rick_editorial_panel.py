@@ -31,7 +31,7 @@ def render_editorial_panel(
         task for task in tasks
         if isinstance(task, dict) and isinstance(task.get("task_id"), str)
         and task.get("source") != "active"
-        and task.get("state") != 1
+        and task.get("state") != 4
     ]
     if not options:
         st.info("Nenhuma tarefa disponível. Gere primeiro um vídeo com plano de cenas.")
