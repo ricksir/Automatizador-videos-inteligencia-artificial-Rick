@@ -12,9 +12,9 @@ from collections.abc import Mapping, Sequence
 from urllib.parse import urlencode
 
 _PERSON_TITLE = re.compile(
-    r"\\b(?:fil[oó]sof[oa]|cientista|historiador(?:a)?|escritor(?:a)?|"
+    r"\b(?:fil[oó]sof[oa]|cientista|historiador(?:a)?|escritor(?:a)?|"
     r"presidente|pol[ií]tic[oa]|pintor(?:a)?|m[uú]sic[oa]|autor(?:a)?)"
-    r"\\s+([a-zà-ÿ]{4,})(?:\\s+([a-zà-ÿ]{4,}))?",
+    r"\s+([a-zà-ÿ]{4,})(?:\s+([a-zà-ÿ]{4,}))?",
     flags=re.IGNORECASE,
 )
 _STOP = frozenset({
