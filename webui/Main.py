@@ -8676,6 +8676,18 @@ def _render_application():
 
     _render_subtitle_settings(right_panel, params)
 
+    # Optional, offline review of files from completed tasks only.
+    # Do not activate rendering or fetch APIs when the panel is collapsed.
+    with st.expander("Rick — Revisão editorial de cenas (experimental)"):
+        if st.toggle("Abrir painel de revisão local", key="rick_editorial_panel_open"):
+            from webui.rick_editorial_panel import render_editorial_panel
+
+            render_editorial_panel(
+                _collect_task_summaries(limit=20),
+                sm.state.get_task,
+                utils.task_dir(),
+            )
+
     generation_submitted = _render_generation_controls(
         params,
         uploaded_files,

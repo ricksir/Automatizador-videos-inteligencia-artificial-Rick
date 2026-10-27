@@ -22,8 +22,13 @@ class TestRickPipeline(unittest.TestCase):
         cls.artifacts = load_module("app/services/task_artifacts.py", "_rick_pipeline_artifacts")
 
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix=".rick-offline-", dir=ROOT)
-        self.assertTrue(Path(temporary.name).resolve().is_relative_to(ROOT))
+        # Keep temporary artifacts OUTSIDE the repository. On Windows,
+        # antivirus/indexers can briefly hold script.json open in the working
+        # tree, causing os.replace(..., script.json) to fail with WinError 5.
+        # The pytest --basetemp option does not affect TemporaryDirectory
+        # created explicitly with dir=ROOT.
+        temporary = tempfile.TemporaryDirectory(prefix="rick-offline-")
+        self.assertFalse(Path(temporary.name).resolve().is_relative_to(ROOT))
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.audio = self.directory / "audio.mp3"
