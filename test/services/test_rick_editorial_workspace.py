@@ -188,3 +188,84 @@ def test_form_does_not_call_generation_or_paid_services():
     assert "material.download_videos(" not in source
     assert "voice.tts(" not in source
     assert "upload_post" not in source
+
+
+def _legacy_task(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    del manifest["rick_scene_candidate_preview"]
+    manifest["search_terms"] = "generic.mp4, election.mp4"
+    manifest["params"] = {
+        "video_source": "pixabay",
+        "video_clip_duration": 2,
+    }
+    (folder / "script.json").write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
+    return root, folder, materials
+
+
+def test_legacy_task_can_be_reviewed_without_generating_video(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    original_script_json = (folder / "script.json").read_bytes()
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=4.0)
+    assert ws["recovered_preview"] is True
+    assert ws["preview"]["recovered_from_historical_records"] is True
+    assert ws["preview"]["scene_count"] == 2
+    assert [s["assigned_material_file"] for s in ws["preview"]["scenes"]] == [
+        "generic.mp4", "election.mp4"
+    ]
+    report = save_editorial_workspace_review(
+        root, "task-123", ws["preview_sha256"], materials, approvals(),
+        audio_duration=4.0
+    )
+    assert report["status"] == "ready_human_reviewed"
+    assert (folder / "script.json").read_bytes() == original_script_json
+    assert load_review_workspace(
+        root, "task-123", materials, audio_duration=4.0
+    )["saved_review"]["human_approved_count"] == 2
+
+
+def test_legacy_task_without_duration_rejects_recovery(tmp_path):
+    root, _, materials = _legacy_task(tmp_path)
+    with pytest.raises(ValueError, match="duração medida"):
+        load_review_workspace(root, "task-123", materials)
+
+
+def test_legacy_task_without_material_provenance_rejects_recovery(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    manifest.pop("material_sources")
+    (folder / "script.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="sem materiais"):
+        load_review_workspace(root, "task-123", materials, audio_duration=4)
+
+
+def test_legacy_changed_sources_invalidate_review_before_write(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=4)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    manifest["material_sources"][0]["search_term"] = "outro material"
+    (folder / "script.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="alterada"):
+        save_editorial_workspace_review(
+            root, "task-123", ws["preview_sha256"], materials, approvals(),
+            audio_duration=4
+        )
+    assert not (folder / "rick_editorial_review.json").exists()
+
+
+def test_legacy_disallows_source_outside_video_banks(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    manifest["params"]["video_source"] = "local"
+    (folder / "script.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="banco"):
+        load_review_workspace(root, "task-123", materials, audio_duration=4)
+
+
+def test_existing_preview_keeps_its_original_origin(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=None)
+    assert ws["recovered_preview"] is False
+    assert "recovered_from_historical_records" not in ws["preview"]
