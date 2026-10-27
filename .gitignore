@@ -45,3 +45,39 @@ htmlcov/
 
 # Claude Code 订阅令牌（docker compose 自动读取），禁止提交
 .env
+
+# Rick security: protect local configuration, credentials and exports everywhere
+.env.*
+!.env.example
+!.env.sample
+**/config.toml
+**/config.toml.*
+**/secrets.toml
+**/credentials.json
+**/*service-account*.json
+**/*service_account*.json
+**/*secret*.json
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.key
+**/*.kdbx
+**/id_rsa
+**/id_ed25519
+**/.aws/
+**/.azure/
+**/.ssh/
+**/.pytest_cache/
+**/.ruff_cache/
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.log
+**/*.log.*
+**/*.env.local
+**/auth.json
+**/token.json
+**/tokens.json
+**/*-credentials.toml
+**/*-credentials.yaml
+**/*-credentials.yml
