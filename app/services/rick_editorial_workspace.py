@@ -141,11 +141,14 @@ def _reconstruct_legacy_preview(
 def available_material_paths(
     material_sources: Sequence[Mapping[str, Any]],
     state_materials: Sequence[str],
+    *,
+    cache_dir: str | Path | None = None,
 ) -> dict[str, str]:
-    """Return unambiguous EXISTING video paths listed in BOTH data sources.
+    """Resolve recorded videos from existing task state or a trusted cache.
 
-    The manifest's local_file is never treated as an OS path.
-    The actual path is taken only from the application's task state.
+    Do not enumerate the whole cache as selectable content. A cache candidate
+    must match an EXACT safe basename already registered in material_sources.
+    The manifest never supplies a filesystem path or a cache directory.
     """
     if (not isinstance(material_sources, list)
             or not isinstance(state_materials, list)):
@@ -175,11 +178,31 @@ def available_material_paths(
         except OSError:
             continue
     counts = Counter(p.name for p in safe_paths)
-    return {
+    ambiguous = {name for name, count in counts.items() if count != 1}
+    result = {
         p.name: str(p.resolve())
         for p in safe_paths
-        if counts[p.name] == 1
+        if p.name not in ambiguous
     }
+    # Older tasks may store valid provenance in script.json but lose their
+    # transient state.materials after a restart. Stock assets live in the
+    # app-controlled cache, not in the task's own folder.
+    if cache_dir is not None:
+        root = Path(cache_dir)
+        try:
+            if not root.is_dir() or root.is_symlink():
+                return result
+            resolved_root = root.resolve()
+            for name in allowed_names - result.keys() - ambiguous:
+                candidate = root / name
+                if (candidate.is_file() and not candidate.is_symlink()
+                        and candidate.stat().st_size > 0
+                        and candidate.resolve().parent == resolved_root):
+                    result[name] = str(candidate.resolve())
+        except OSError:
+            # Cache access is optional; never block an existing valid state.
+            pass
+    return result
 
 
 def load_review_workspace(
@@ -188,11 +211,13 @@ def load_review_workspace(
     state_materials: Sequence[str],
     *,
     audio_duration: Any = None,
+    cache_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     folder = task_folder(tasks_root, task_id)
     manifest = _script_data(folder)
     paths = available_material_paths(
-        manifest.get("material_sources", []), state_materials
+        manifest.get("material_sources", []), state_materials,
+        cache_dir=cache_dir,
     )
     preview = manifest.get("rick_scene_candidate_preview")
     recovered = not isinstance(preview, dict)
@@ -246,6 +271,7 @@ def save_editorial_workspace_review(
     decisions: Sequence[Mapping[str, Any]],
     *,
     audio_duration: Any = None,
+    cache_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Revalidate historical/live sources before atomic local persistence."""
     folder = task_folder(tasks_root, task_id)
@@ -253,7 +279,8 @@ def save_editorial_workspace_review(
     preview = manifest.get("rick_scene_candidate_preview")
     if not isinstance(preview, dict):
         safe_paths = available_material_paths(
-            manifest.get("material_sources", []), downloaded_files
+            manifest.get("material_sources", []), downloaded_files,
+            cache_dir=cache_dir,
         )
         preview = _reconstruct_legacy_preview(manifest, safe_paths, audio_duration)
     if preview_sha256 != _preview_fingerprint(preview):
