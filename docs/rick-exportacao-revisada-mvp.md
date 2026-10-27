@@ -41,6 +41,43 @@ Se o vídeo original utilizava legendas mas o arquivo subtitle.srt não existe,
 a exportação é bloqueada. Para permitir a saída sem legendas, marque
 **Permitir exportar sem legendas** explicitamente.
 
+
+## Quando um clipe mostra conteúdo errado (exemplo: cachoeira para Gramsci)
+
+Os nomes dos arquivos e termos de busca dos bancos de vídeo **não provam**
+o conteúdo das imagens. O Rick não reconhece visualmente pessoas ou fatos,
+e jamais atribui aprovação automática a clipes ordenados por metadados.
+
+Na revisão de uma cena:
+
+1. Se um vídeo não serve (como uma cachoeira para uma narração sobre Gramsci),
+   clique em **Descartar este clipe de toda a tarefa**. Ele deixa de aparecer
+   nas opções das outras cenas daquela tarefa, mas o arquivo de cache não é apagado.
+   Há uma seção **Clipes descartados nesta tarefa** para restaurar um descarte.
+2. Para usar seu próprio material, abra **Adicionar vídeo ou fotografia adequada
+   (local)**. Escolha MP4 (máximo 64 MB) ou uma foto JPG/PNG (máximo 12 MB e
+   20 megapixels), informe a origem e as condições de uso conhecidas e clique
+   em **Adicionar à biblioteca desta tarefa**. JPG e PNG são convertidos por
+   FFmpeg local em MP4 vertical silencioso de quatro segundos; a renderização
+   pode repetir o trecho de origem para cobrir a cena aprovada.
+3. Após importar, escolha a nova mídia no seletor, assista e confira
+   correspondência com a narração, autoria e licença. **A importação não
+   marca conteúdo nem direitos como conferidos e nunca aprova a cena.**
+4. Quando faltar material adequado, mantenha a cena pendente ou rejeitada.
+   A exportação permanece bloqueada; não substitua por mídia genérica.
+
+Os novos arquivos ficam somente na subpasta de materiais editoriais da
+tarefa; seu catálogo e seus hashes SHA-256 são registrados à parte do
+`script.json`. A exportação usa o cache confiável original e, quando
+houver, apenas as mídias adicionais registradas e intactas, validando
+todos os clipes novamente. Nenhum upload é uma certificação automática
+de adequação histórica, direitos autorais ou autenticidade.
+
+Para fotos históricas, consulte fontes com informações verificáveis sobre
+autoria, data e condições de licença; páginas e metadados não substituem
+essa conferência. A busca de fontes é ação humana separada: importar não
+faz download remoto nem aciona IA.
+
 ## Teste e alternativa PowerShell
 
 Execute na pasta MoneyPrinterTurbo:
