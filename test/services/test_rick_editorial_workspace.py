@@ -188,3 +188,244 @@ def test_form_does_not_call_generation_or_paid_services():
     assert "material.download_videos(" not in source
     assert "voice.tts(" not in source
     assert "upload_post" not in source
+
+
+def _legacy_task(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    del manifest["rick_scene_candidate_preview"]
+    manifest["search_terms"] = "generic.mp4, election.mp4"
+    manifest["params"] = {
+        "video_source": "pixabay",
+        "video_clip_duration": 2,
+    }
+    (folder / "script.json").write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
+    return root, folder, materials
+
+
+def test_legacy_task_can_be_reviewed_without_generating_video(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    original_script_json = (folder / "script.json").read_bytes()
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=4.0)
+    assert ws["recovered_preview"] is True
+    assert ws["preview"]["recovered_from_historical_records"] is True
+    assert ws["preview"]["scene_count"] == 2
+    assert [s["assigned_material_file"] for s in ws["preview"]["scenes"]] == [
+        "generic.mp4", "election.mp4"
+    ]
+    report = save_editorial_workspace_review(
+        root, "task-123", ws["preview_sha256"], materials, approvals(),
+        audio_duration=4.0
+    )
+    assert report["status"] == "ready_human_reviewed"
+    assert (folder / "script.json").read_bytes() == original_script_json
+    assert load_review_workspace(
+        root, "task-123", materials, audio_duration=4.0
+    )["saved_review"]["human_approved_count"] == 2
+
+
+def test_legacy_task_without_duration_rejects_recovery(tmp_path):
+    root, _, materials = _legacy_task(tmp_path)
+    with pytest.raises(ValueError, match="duração medida"):
+        load_review_workspace(root, "task-123", materials)
+
+
+def test_legacy_task_without_material_provenance_rejects_recovery(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    manifest.pop("material_sources")
+    (folder / "script.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="sem materiais"):
+        load_review_workspace(root, "task-123", materials, audio_duration=4)
+
+
+def test_legacy_changed_sources_invalidate_review_before_write(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=4)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    manifest["material_sources"][0]["search_term"] = "outro material"
+    (folder / "script.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="alterada"):
+        save_editorial_workspace_review(
+            root, "task-123", ws["preview_sha256"], materials, approvals(),
+            audio_duration=4
+        )
+    assert not (folder / "rick_editorial_review.json").exists()
+
+
+def test_legacy_disallows_source_outside_video_banks(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
+    manifest["params"]["video_source"] = "local"
+    (folder / "script.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="banco"):
+        load_review_workspace(root, "task-123", materials, audio_duration=4)
+
+
+def test_existing_preview_keeps_its_original_origin(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=None)
+    assert ws["recovered_preview"] is False
+    assert "recovered_from_historical_records" not in ws["preview"]
+
+
+def test_historical_stock_cache_recovers_only_recorded_files(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    for filename in ("generic.mp4", "portrait.mp4", "election.mp4", "other.mp4"):
+        (cache / filename).write_bytes(b"valid dummy bytes")
+    # Historical state.materials is empty after a restart; do not silently
+    # offer other cached clips from unrelated tasks.
+    ws = load_review_workspace(
+        root, "task-123", [], audio_duration=4.0, cache_dir=cache
+    )
+    assert set(ws["paths"]) == {"generic.mp4", "portrait.mp4", "election.mp4"}
+    assert "other.mp4" not in ws["paths"]
+    original = (folder / "script.json").read_bytes()
+    report = save_editorial_workspace_review(
+        root, "task-123", ws["preview_sha256"],
+        list(ws["paths"].values()), approvals(), audio_duration=4.0,
+        cache_dir=cache,
+    )
+    assert report["status"] == "ready_human_reviewed"
+    assert (folder / "script.json").read_bytes() == original
+
+
+def test_unregistered_or_missing_cached_files_cannot_be_selected(tmp_path):
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    (cache / "other.mp4").write_bytes(b"not from task")
+    paths = available_material_paths(
+        [{"local_file": "generic.mp4"}, {"local_file": "../other.mp4"}],
+        [], cache_dir=cache,
+    )
+    assert paths == {}
+    (cache / "generic.mp4").write_bytes(b"")
+    assert available_material_paths(
+        [{"local_file": "generic.mp4"}], [], cache_dir=cache
+    ) == {}
+
+
+def test_ambiguous_state_paths_not_overridden_by_cache(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    (cache / "portrait.mp4").write_bytes(b"cache asset")
+    duplicate = tmp_path / "another" / "portrait.mp4"
+    duplicate.parent.mkdir()
+    duplicate.write_bytes(b"conflicting")
+    paths = available_material_paths(
+        [{"local_file": "portrait.mp4"}],
+        [str(folder / "portrait.mp4"), str(duplicate)],
+        cache_dir=cache,
+    )
+    assert paths == {}
+
+
+def test_symlinked_cache_file_is_not_exposed(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    path = cache / "portrait.mp4"
+    try:
+        path.symlink_to(folder / "portrait.mp4")
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks not permitted on this host")
+    assert available_material_paths(
+        [{"local_file": "portrait.mp4"}], [], cache_dir=cache
+    ) == {}
+
+
+def test_malformed_cache_name_cannot_escape_cache(tmp_path):
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    external = tmp_path / "private.mp4"
+    external.write_bytes(b"private")
+    assert available_material_paths(
+        [{"local_file": "../private.mp4"}], [], cache_dir=cache
+    ) == {}
+
+
+def test_legacy_missing_state_duration_uses_existing_audio_mp3(tmp_path, monkeypatch):
+    root, folder, materials = _legacy_task(tmp_path)
+    audio = folder / "audio.mp3"
+    audio.write_bytes(b"locally stored audio bytes")
+    from app.services import voice
+
+    measured = []
+    monkeypatch.setattr(
+        voice, "get_audio_duration",
+        lambda filename: measured.append(filename) or 4.0,
+    )
+    original = (folder / "script.json").read_bytes()
+    ws = load_review_workspace(root, "task-123", materials)
+    assert ws["recovered_preview"] is True
+    assert ws["preview"]["scenes"][-1]["end_seconds"] == 4.0
+    report = save_editorial_workspace_review(
+        root, "task-123", ws["preview_sha256"], materials, approvals()
+    )
+    assert report["status"] == "ready_human_reviewed"
+    assert measured == [str(audio), str(audio)]
+    assert (folder / "script.json").read_bytes() == original
+
+
+def test_legacy_duration_prefers_recorded_measurement_over_audio_mp3(
+    tmp_path, monkeypatch
+):
+    root, folder, materials = _legacy_task(tmp_path)
+    (folder / "audio.mp3").write_bytes(b"audio")
+    from app.services import voice
+
+    def should_not_measure(*_):
+        pytest.fail("Audio must not be decoded when state already has duration")
+
+    monkeypatch.setattr(voice, "get_audio_duration", should_not_measure)
+    ws = load_review_workspace(root, "task-123", materials, audio_duration=4.0)
+    assert ws["preview"]["scenes"][-1]["end_seconds"] == 4.0
+
+
+def test_legacy_rejects_empty_audio_mp3_and_does_not_use_final_video(
+    tmp_path, monkeypatch
+):
+    root, folder, materials = _legacy_task(tmp_path)
+    (folder / "audio.mp3").write_bytes(b"")
+    (folder / "final.mp4").write_bytes(b"not a narration source")
+    from app.services import voice
+
+    def should_not_measure(*_):
+        pytest.fail("Invalid files must never be probed")
+
+    monkeypatch.setattr(voice, "get_audio_duration", should_not_measure)
+    with pytest.raises(ValueError, match="duração medida"):
+        load_review_workspace(root, "task-123", materials)
+
+
+def test_legacy_symlinked_audio_cannot_be_decoded(tmp_path, monkeypatch):
+    root, folder, materials = _legacy_task(tmp_path)
+    external = tmp_path / "external.mp3"
+    external.write_bytes(b"not task audio")
+    try:
+        (folder / "audio.mp3").symlink_to(external)
+    except (NotImplementedError, OSError):
+        pytest.skip("Symlinks disabled on this host")
+    from app.services import voice
+
+    def should_not_measure(*_):
+        pytest.fail("Symlink must be excluded")
+
+    monkeypatch.setattr(voice, "get_audio_duration", should_not_measure)
+    with pytest.raises(ValueError, match="duração medida"):
+        load_review_workspace(root, "task-123", materials)
+
+
+def test_editorial_ui_requires_explicit_video_choice_when_unverified():
+    text = (Path(__file__).parents[2] / "webui" / "rick_editorial_panel.py").read_text(
+        encoding="utf-8"
+    )
+    assert "review_choices = [None, *choices]" in text
+    assert "if chosen is not None:" in text
+    assert "rick_editorial_material_v2_" in text
+    assert "selected_default = scene.get(\"assigned_material_file\")" not in text

@@ -11,6 +11,8 @@ from typing import Any
 
 import streamlit as st
 
+from app.utils import utils
+
 from app.services.rick_editorial_workspace import (
     load_review_workspace,
     save_editorial_workspace_review,
@@ -48,7 +50,11 @@ def render_editorial_panel(
         media_paths = state.get("materials", [])
         if not isinstance(media_paths, list):
             media_paths = []
-        workspace = load_review_workspace(tasks_root, selected_id, media_paths)
+        workspace = load_review_workspace(
+            tasks_root, selected_id, media_paths,
+            audio_duration=state.get("audio_duration"),
+            cache_dir=utils.storage_dir("cache_videos"),
+        )
     except (ValueError, OSError) as exc:
         st.warning(str(exc))
         return
@@ -64,6 +70,12 @@ def render_editorial_panel(
         )
         return
 
+    if workspace["recovered_preview"]:
+        st.info(
+            "Prévia reconstruída localmente a partir dos dados da tarefa antiga. "
+            "Os intervalos são estimados; nenhuma consulta à IA, download ou "
+            "renderização foi realizada. Confira cada cena antes de aprovar."
+        )
     saved = workspace["saved_review"] or {}
     old_scenes = saved.get("scenes", []) if isinstance(saved, dict) else []
     if not isinstance(old_scenes, list):
@@ -98,31 +110,48 @@ def render_editorial_panel(
                     + " • Candidato automático: "
                     + str(scene.get("assigned_material_file") or "não encontrado")
                 )
-                selected_default = old.get("assigned_material_file")
+                # Historical suggestions are NOT verified semantic matches.
+                # Do not silently default to the first cached clip (which can
+                # be entirely unrelated, e.g. a waterfall for Gramsci).
+                selected_default = (
+                    old.get("assigned_material_file")
+                    if old.get("editorial_review") == "approved_by_human"
+                    else None
+                )
                 if selected_default not in paths:
-                    selected_default = scene.get("assigned_material_file")
-                index = choices.index(selected_default) if selected_default in paths else 0
+                    selected_default = None
+                review_choices = [None, *choices]
                 chosen = st.selectbox(
                     "Arquivo de vídeo (existente)",
-                    choices, index=index,
-                    key=f"rick_editorial_material_{selected_id}_{idx}",
+                    review_choices,
+                    index=review_choices.index(selected_default),
+                    format_func=lambda name: (
+                        name if name is not None else "— Selecione um clipe —"
+                    ),
+                    key=f"rick_editorial_material_v2_{selected_id}_{idx}",
                 )
-                source_path = paths[chosen]
-                provenance = workspace["source_metadata"].get(chosen, {})
-                st.caption(
-                    "Fonte registrada: " + str(provenance.get("provider") or "não informada")
-                    + " • Página de origem: "
-                    + str(provenance.get("source_page") or "não informada")
-                )
-                if st.checkbox(
-                    "Pré-visualizar clipe",
-                    value=(idx == 1),
-                    key=f"rick_editorial_show_video_{selected_id}_{idx}",
-                ):
-                    try:
-                        st.video(source_path)
-                    except (OSError, ValueError):
-                        st.warning("Não foi possível reproduzir esse clipe no navegador.")
+                if chosen is not None:
+                    source_path = paths[chosen]
+                    provenance = workspace["source_metadata"].get(chosen, {})
+                    st.caption(
+                        "Fonte registrada: " + str(provenance.get("provider") or "não informada")
+                        + " • Página de origem: "
+                        + str(provenance.get("source_page") or "não informada")
+                    )
+                    if st.checkbox(
+                        "Pré-visualizar clipe",
+                        value=(idx == 1),
+                        key=f"rick_editorial_show_video_v2_{selected_id}_{idx}",
+                    ):
+                        try:
+                            st.video(source_path)
+                        except (OSError, ValueError):
+                            st.warning("Não foi possível reproduzir esse clipe no navegador.")
+                else:
+                    st.caption(
+                        "Nenhum vídeo selecionado. O candidato automático não "
+                        "é uma confirmação de correspondência com o roteiro."
+                    )
                 review = st.radio(
                     "Decisão editorial",
                     ["Pendente", "Aprovar", "Rejeitar"],
@@ -164,6 +193,8 @@ def render_editorial_panel(
         report = save_editorial_workspace_review(
             tasks_root, selected_id, workspace["preview_sha256"],
             list(paths.values()), decisions,
+            audio_duration=state.get("audio_duration"),
+            cache_dir=utils.storage_dir("cache_videos"),
         )
     except (ValueError, OSError) as exc:
         st.error(f"Falha ao salvar revisão: {exc}")
