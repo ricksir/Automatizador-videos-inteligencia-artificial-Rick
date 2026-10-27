@@ -51,3 +51,12 @@ uv run pytest -q --basetemp "$env:LOCALAPPDATA\Rick\pytest-editorial-v2b2e1" tes
 ```
 
 Os testes utilizam dados fictícios e mocks, não geram MP4 nem consomem crédito de API.
+
+## Proteção adicional antes da renderização
+
+A aprovação editorial é **fail-closed** em duas camadas:
+
+- `build_editorial_review` elimina `assigned_material_file` e substitui `match_status` por `editorial_review_required` sempre que a cena não estiver integralmente aprovada; candidatos antigos não permanecem selecionados.
+- `build_scene_render_preflight` reconhece quando há dados de revisão editorial e impede gerar segmentos se o status geral não for `ready_human_reviewed` ou se qualquer cena não contiver aprovação e as declarações de conteúdo, licença e origem. O fluxo legado sem revisão permanece inalterado.
+
+Os testes cobrem também essas barreiras, para evitar que um consumidor use o plano incompleto diretamente na montagem. Esse guard **não ativa** o fluxo automático de revisão; a futura WebUI precisa confirmar que houve uma decisão humana explícita antes de habilitar o render.
