@@ -425,7 +425,12 @@ def test_editorial_ui_requires_explicit_video_choice_when_unverified():
     text = (Path(__file__).parents[2] / "webui" / "rick_editorial_panel.py").read_text(
         encoding="utf-8"
     )
-    assert "review_choices = [None, *choices]" in text
+    # Metadata ranking does not preselect a candidate.
+    assert "ranked = order_review_materials(" in text
+    assert "review_choices = [None, *ranked]" in text
+    assert "index=review_choices.index(selected_default)" in text
+    assert 'if old.get("editorial_review") == "approved_by_human"' in text
     assert "if chosen is not None:" in text
-    assert "rick_editorial_material_v2_" in text
+    # Distinct widget identity keeps old Streamlit choices from leaking into reviews.
+    assert "rick_editorial_material_v3_" in text
     assert "selected_default = scene.get(\"assigned_material_file\")" not in text
