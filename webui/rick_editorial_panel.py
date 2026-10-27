@@ -11,6 +11,8 @@ from typing import Any
 
 import streamlit as st
 
+from app.utils import utils
+
 from app.services.rick_editorial_workspace import (
     load_review_workspace,
     save_editorial_workspace_review,
@@ -51,6 +53,7 @@ def render_editorial_panel(
         workspace = load_review_workspace(
             tasks_root, selected_id, media_paths,
             audio_duration=state.get("audio_duration"),
+            cache_dir=utils.storage_dir("cache_videos"),
         )
     except (ValueError, OSError) as exc:
         st.warning(str(exc))
@@ -174,6 +177,7 @@ def render_editorial_panel(
             tasks_root, selected_id, workspace["preview_sha256"],
             list(paths.values()), decisions,
             audio_duration=state.get("audio_duration"),
+            cache_dir=utils.storage_dir("cache_videos"),
         )
     except (ValueError, OSError) as exc:
         st.error(f"Falha ao salvar revisão: {exc}")
