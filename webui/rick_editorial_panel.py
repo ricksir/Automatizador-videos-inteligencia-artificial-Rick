@@ -17,6 +17,11 @@ from app.services.rick_editorial_workspace import (
     load_review_workspace,
     save_editorial_workspace_review,
 )
+from app.services.rick_visual_curation import (
+    inspect_visual_scenes,
+    retained_human_decisions,
+    order_review_materials,
+)
 
 
 def render_editorial_panel(
@@ -84,10 +89,64 @@ def render_editorial_panel(
         f"{len(scenes)} cenas • {len(paths)} vídeos disponíveis • "
         "Tempos são estimados e a presença de um vídeo não comprova o assunto."
     )
+    curation = inspect_visual_scenes(
+        str(by_id[selected_id].get("subject") or ""),
+        scenes,
+        [{"local_file": name, **meta}
+         for name, meta in workspace["source_metadata"].items()],
+    )
+    with st.expander("Rick — Triagem visual e buscas históricas", expanded=True):
+        st.caption(curation["disclaimer"])
+        st.write(
+            f"{curation['scenes_with_issues']} de {curation['scenes_total']} "
+            "cenas têm alertas de metadados; "
+            f"{curation['reused_source_occurrences']} reutilizações de origem "
+            "nas sugestões. Isto não é análise do conteúdo visual."
+        )
+        if curation["subject_anchor"]:
+            st.info(
+                f"Assunto possivelmente relacionado a pessoa: "
+                f"{curation['subject_anchor']}. Busque fotos e documentos "
+                "autênticos para conferir manualmente."
+            )
+            st.link_button(
+                "Pesquisar imagens históricas no Wikimedia Commons",
+                curation["scenes"][0]["historical_image_search_url"],
+            )
+        st.dataframe([
+            {
+                "Cena": row["scene_number"],
+                "Trecho": row["text"][:90],
+                "Consulta": row["search_term"],
+                "Avisos": "; ".join(row["issues"]) or "Verificar visualmente",
+            }
+            for row in curation["scenes"]
+        ], hide_index=True, use_container_width=True)
+
+    mode = st.radio(
+        "Modo de revisão", ["Uma cena por vez", "Todas as cenas"],
+        horizontal=True, key=f"rick_editorial_mode_{selected_id}",
+    )
+    if mode == "Uma cena por vez":
+        chosen_scene = st.selectbox(
+            "Cena para revisar", list(range(1, len(scenes) + 1)),
+            format_func=lambda number: (
+                f"Cena {number} — "
+                f"{str(scenes[number - 1].get('text') or '')[:75]}"
+            ),
+            key=f"rick_editorial_single_{selected_id}",
+        )
+        scene_indexes = [chosen_scene]
+        decisions: list[dict[str, Any]] = retained_human_decisions(
+            old_scenes, exclude_scene=chosen_scene,
+        )
+    else:
+        scene_indexes = list(range(1, len(scenes) + 1))
+        decisions = []
     choices = sorted(paths)
-    decisions: list[dict[str, Any]] = []
     with st.form(key=f"rick_editorial_form_{selected_id}", clear_on_submit=False):
-        for idx, scene in enumerate(scenes, 1):
+        for idx in scene_indexes:
+            scene = scenes[idx - 1]
             if not isinstance(scene, dict):
                 st.error(f"Cena {idx} inválida; não será possível aprovar.")
                 return
@@ -102,13 +161,22 @@ def render_editorial_panel(
             )
             with st.expander(
                 f"Cena {idx} — {scene.get('start_seconds')}–"
-                f"{scene.get('end_seconds')} s", expanded=(idx == 1),
+                f"{scene.get('end_seconds')} s", expanded=(mode == "Uma cena por vez" or idx == 1),
             ):
                 st.write(str(scene.get("text") or "Sem texto")[:2000])
                 st.caption(
                     "Busca sugerida: " + str(scene.get("search_term") or "(nenhuma)")
                     + " • Candidato automático: "
                     + str(scene.get("assigned_material_file") or "não encontrado")
+                )
+                triage = curation["scenes"][idx - 1]
+                if triage["issues"]:
+                    st.warning(
+                        "Alertas para conferência: " + "; ".join(triage["issues"])
+                    )
+                st.caption(
+                    "Buscas alternativas (não executadas automaticamente): "
+                    + " • ".join(triage["suggested_queries"])
                 )
                 # Historical suggestions are NOT verified semantic matches.
                 # Do not silently default to the first cached clip (which can
@@ -120,15 +188,22 @@ def render_editorial_panel(
                 )
                 if selected_default not in paths:
                     selected_default = None
-                review_choices = [None, *choices]
+                ranked = order_review_materials(
+                    scene, workspace["source_metadata"], choices,
+                )
+                review_choices = [None, *ranked]
+                def describe_option(name):
+                    if name is None:
+                        return "— Selecione um clipe —"
+                    info = workspace["source_metadata"].get(name, {})
+                    term = str(info.get("search_term") or "sem busca registrada")[:55]
+                    return f"{term} · {name}"
                 chosen = st.selectbox(
                     "Arquivo de vídeo (existente)",
                     review_choices,
                     index=review_choices.index(selected_default),
-                    format_func=lambda name: (
-                        name if name is not None else "— Selecione um clipe —"
-                    ),
-                    key=f"rick_editorial_material_v2_{selected_id}_{idx}",
+                    format_func=describe_option,
+                    key=f"rick_editorial_material_v3_{selected_id}_{idx}",
                 )
                 if chosen is not None:
                     source_path = paths[chosen]
