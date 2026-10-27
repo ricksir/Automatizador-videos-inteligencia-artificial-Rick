@@ -108,10 +108,15 @@ def render_editorial_panel(
                     key=f"rick_editorial_material_{selected_id}_{idx}",
                 )
                 source_path = paths[chosen]
-                try:
-                    st.video(source_path)
-                except (OSError, ValueError):
-                    st.warning("Não foi possível reproduzir esse clipe no navegador.")
+                if st.checkbox(
+                    "Pré-visualizar clipe",
+                    value=(idx == 1),
+                    key=f"rick_editorial_show_video_{selected_id}_{idx}",
+                ):
+                    try:
+                        st.video(source_path)
+                    except (OSError, ValueError):
+                        st.warning("Não foi possível reproduzir esse clipe no navegador.")
                 review = st.radio(
                     "Decisão editorial",
                     ["Pendente", "Aprovar", "Rejeitar"],
