@@ -269,3 +269,81 @@ def test_existing_preview_keeps_its_original_origin(tmp_path):
     ws = load_review_workspace(root, "task-123", materials, audio_duration=None)
     assert ws["recovered_preview"] is False
     assert "recovered_from_historical_records" not in ws["preview"]
+
+
+def test_historical_stock_cache_recovers_only_recorded_files(tmp_path):
+    root, folder, materials = _legacy_task(tmp_path)
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    for filename in ("generic.mp4", "portrait.mp4", "election.mp4", "other.mp4"):
+        (cache / filename).write_bytes(b"valid dummy bytes")
+    # Historical state.materials is empty after a restart; do not silently
+    # offer other cached clips from unrelated tasks.
+    ws = load_review_workspace(
+        root, "task-123", [], audio_duration=4.0, cache_dir=cache
+    )
+    assert set(ws["paths"]) == {"generic.mp4", "portrait.mp4", "election.mp4"}
+    assert "other.mp4" not in ws["paths"]
+    original = (folder / "script.json").read_bytes()
+    report = save_editorial_workspace_review(
+        root, "task-123", ws["preview_sha256"],
+        list(ws["paths"].values()), approvals(), audio_duration=4.0,
+        cache_dir=cache,
+    )
+    assert report["status"] == "ready_human_reviewed"
+    assert (folder / "script.json").read_bytes() == original
+
+
+def test_unregistered_or_missing_cached_files_cannot_be_selected(tmp_path):
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    (cache / "other.mp4").write_bytes(b"not from task")
+    paths = available_material_paths(
+        [{"local_file": "generic.mp4"}, {"local_file": "../other.mp4"}],
+        [], cache_dir=cache,
+    )
+    assert paths == {}
+    (cache / "generic.mp4").write_bytes(b"")
+    assert available_material_paths(
+        [{"local_file": "generic.mp4"}], [], cache_dir=cache
+    ) == {}
+
+
+def test_ambiguous_state_paths_not_overridden_by_cache(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    (cache / "portrait.mp4").write_bytes(b"cache asset")
+    duplicate = tmp_path / "another" / "portrait.mp4"
+    duplicate.parent.mkdir()
+    duplicate.write_bytes(b"conflicting")
+    paths = available_material_paths(
+        [{"local_file": "portrait.mp4"}],
+        [str(folder / "portrait.mp4"), str(duplicate)],
+        cache_dir=cache,
+    )
+    assert paths == {}
+
+
+def test_symlinked_cache_file_is_not_exposed(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    path = cache / "portrait.mp4"
+    try:
+        path.symlink_to(folder / "portrait.mp4")
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks not permitted on this host")
+    assert available_material_paths(
+        [{"local_file": "portrait.mp4"}], [], cache_dir=cache
+    ) == {}
+
+
+def test_malformed_cache_name_cannot_escape_cache(tmp_path):
+    cache = tmp_path / "cache_videos"
+    cache.mkdir()
+    external = tmp_path / "private.mp4"
+    external.write_bytes(b"private")
+    assert available_material_paths(
+        [{"local_file": "../private.mp4"}], [], cache_dir=cache
+    ) == {}
