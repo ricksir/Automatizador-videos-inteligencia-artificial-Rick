@@ -108,6 +108,12 @@ def render_editorial_panel(
                     key=f"rick_editorial_material_{selected_id}_{idx}",
                 )
                 source_path = paths[chosen]
+                provenance = workspace["source_metadata"].get(chosen, {})
+                st.caption(
+                    "Fonte registrada: " + str(provenance.get("provider") or "não informada")
+                    + " • Página de origem: "
+                    + str(provenance.get("source_page") or "não informada")
+                )
                 if st.checkbox(
                     "Pré-visualizar clipe",
                     value=(idx == 1),
