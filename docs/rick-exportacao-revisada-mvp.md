@@ -11,6 +11,10 @@ MP4 na subpasta rick_reviewed_exports de armazenamento da tarefa.
 - Não há novas chamadas para LLM, TTS, bancos de vídeos, APIs pagas ou publicação.
 - O exportador usa o mecanismo de cenas já testado com MoviePy e FFmpeg.
 - Os arquivos de mídia precisam existir e estar registrados no manifesto.
+- A WebUI e o CLI fornecem explicitamente a pasta confiável de cache de vídeos;
+  a API `prepare_reviewed_export(..., cache_dir=...)` exige esse argumento.
+  A exportação não pesquisa clipes soltos na pasta da tarefa nem aceita
+  caminhos informados pelo manifesto como substitutos.
 - Os tempos de cena seguem estimados, sem alinhamento por palavra.
 
 ## Utilização na WebUI
