@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Commitar somente PRs propostos; nunca instalar atualizacoes automaticamente.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
