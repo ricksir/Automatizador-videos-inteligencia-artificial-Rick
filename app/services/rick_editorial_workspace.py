@@ -257,14 +257,17 @@ def load_review_workspace(
 
     editorial_paths, editorial_metadata = load_editorial_assets(tasks_root, task_id)
     paths.update(editorial_paths)
-    for rejected_name in excluded_editorial_materials(tasks_root, task_id):
-        paths.pop(rejected_name, None)
     preview = manifest.get("rick_scene_candidate_preview")
     recovered = not isinstance(preview, dict)
     if recovered:
+        # A human rejection only removes the clip from selectable inventory.
+        # It must not rewrite the historical preview fingerprint and erase
+        # unrelated human approvals already saved on disk.
         preview = _reconstruct_legacy_preview(
             manifest, paths, audio_duration, folder=folder
         )
+    for rejected_name in excluded_editorial_materials(tasks_root, task_id):
+        paths.pop(rejected_name, None)
     scenes = preview.get("scenes")
     if (
         not isinstance(scenes, list)
