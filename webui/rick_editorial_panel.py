@@ -392,15 +392,6 @@ def render_editorial_panel(
                     + " • Página de origem: "
                     + str(provenance.get("source_page") or "não informada")
                 )
-                if st.checkbox(
-                    "Mostrar prévia do vídeo selecionado",
-                    value=mode == "Uma cena por vez",
-                    key=f"rick_editorial_show_video_v4_{selected_id}_{idx}",
-                ):
-                    try:
-                        st.video(source_path)
-                    except (OSError, ValueError):
-                        st.warning("Não foi possível reproduzir esse vídeo no navegador.")
                 if st.button(
                     "Descartar este clipe de toda a tarefa",
                     key=f"rick_editorial_exclude_v5_{selected_id}_{idx}",
@@ -416,6 +407,16 @@ def render_editorial_panel(
                             "O arquivo original foi preservado."
                         )
                         st.rerun()
+                if st.checkbox(
+                    "Mostrar prévia do vídeo selecionado",
+                    value=mode == "Uma cena por vez",
+                    key=f"rick_editorial_show_video_v4_{selected_id}_{idx}",
+                ):
+                    try:
+                        st.video(source_path)
+                    except (OSError, ValueError):
+                        st.warning("Não foi possível reproduzir esse vídeo no navegador.")
+
             else:
                 st.info(
                     "Escolha um vídeo acima para assistir. Nenhuma sugestão "
