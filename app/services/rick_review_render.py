@@ -97,8 +97,21 @@ def prepare_reviewed_export(
     if type(max_clip) is not int or not 1 <= max_clip <= 20:
         max_clip = 4
 
+    # Supply only human-approved media, in first scene-use order. Cache
+    # discovery may iterate over a set and must not dictate render inputs or
+    # the order of the exported provenance report.
     allowed_paths = workspace["paths"]
-    ordered_paths = list(allowed_paths.values())
+    ordered_paths: list[str] = []
+    seen_names: set[str] = set()
+    for scene in scenes:
+        name = scene.get("assigned_material_file")
+        if not isinstance(name, str) or name not in allowed_paths:
+            raise ValueError(
+                "Montagem bloqueada: clipe aprovado indisponível ou não autorizado."
+            )
+        if name not in seen_names:
+            seen_names.add(name)
+            ordered_paths.append(allowed_paths[name])
     timeline = rick_scene_timeline.build_scene_render_preflight(
         review, ordered_paths, planned, max_clip_seconds=max_clip,
     )
