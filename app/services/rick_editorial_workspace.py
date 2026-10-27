@@ -112,7 +112,11 @@ def load_review_workspace(
             "e gere uma nova tarefa com materiais de banco."
         )
     scenes = preview.get("scenes")
-    if not isinstance(scenes, list) or not 1 <= len(scenes) <= 60:
+    if (
+        not isinstance(scenes, list)
+        or not 1 <= len(scenes) <= 60
+        or any(not isinstance(scene, dict) for scene in scenes)
+    ):
         raise ValueError("Prévia de cenas inválida.")
     paths = available_material_paths(
         manifest.get("material_sources", []), state_materials
