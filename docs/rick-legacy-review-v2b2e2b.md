@@ -72,3 +72,28 @@ final depende da WebUI no computador do usuário. Foi adicionada cobertura
 para recuperação com estado vazio, conteúdo não registrado, ambiguidade,
 arquivo vazio e links simbólicos.
 
+
+## Validação visual com tarefas reais — 27/10/2026
+
+A tarefa histórica de Gramsci agora recuperou **24 cenas e 10 clipes**, com
+origem Pixabay registrada e reprodução no navegador. Porém, a primeira cena
+mostrou uma **cachoeira**, apesar de o texto se referir ao filósofo.
+Recuperação dos bytes de mídia **não confirma adequação temática**.
+
+Correção adicional: quando não houver seleção editorial aprovada, o seletor
+de vídeo apresenta inicialmente **"— Selecione um clipe —"**, em vez de
+escolher automaticamente o primeiro arquivo do cache. Clipes sugeridos
+continuam disponíveis, mas precisam de escolha consciente e conferência.
+A montagem não é executada durante a revisão.
+
+A tarefa do céu azul recuperou os materiais, mas não apresentou duração do
+áudio no estado. Para tarefas históricas sem esse dado nem diagnóstico
+confiável, o aplicativo agora tenta medir **apenas** o arquivo
+`audio.mp3` diretamente dentro da pasta validada da tarefa. A medição usa
+a rotina de duração de áudio já existente e não faz chamadas de API.
+Não segue links simbólicos, não aceita caminhos do manifesto e não usa
+MP4 final com trilha musical como substituto da duração da narração.
+Se `audio.mp3` não existir ou for inválido, a recuperação permanece bloqueada.
+
+Essas melhorias só podem ser consideradas homologadas após nova execução
+dos testes no Windows e conferência visual das duas tarefas antigas.
