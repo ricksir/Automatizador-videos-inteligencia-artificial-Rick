@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from app.services.rick_editorial_review import build_editorial_review
 from app.services.rick_visual_curation import (
     commons_search_url,
     inspect_visual_scenes,
@@ -118,6 +119,37 @@ class VisualCurationTests(unittest.TestCase):
         self.assertEqual(ranked[0], "gr.mp4")
         self.assertEqual(ranked[-1], "waterfall.mp4")
         # A rank is never an approval or an image identity assertion.
+
+    def test_single_scene_roundtrip_preserves_other_human_review(self):
+        preview = {"scenes": [
+            {"text": "Gramsci", "start_seconds": 0, "end_seconds": 2},
+            {"text": "Outra cena", "start_seconds": 2, "end_seconds": 4},
+        ]}
+        sources = ["portrait.mp4", "history.mp4"]
+        first = build_editorial_review(preview, sources, [{
+            "scene_number": 1,
+            "decision": "approve",
+            "selected_file": "portrait.mp4",
+            "source_note": "Fonte e licença revisadas",
+            "content_checked": True,
+            "rights_checked": True,
+        }])
+        self.assertEqual(first["status"], "blocked")
+        retained = retained_human_decisions(first["scenes"], exclude_scene=2)
+        second = build_editorial_review(preview, sources, retained + [{
+            "scene_number": 2,
+            "decision": "approve",
+            "selected_file": "history.mp4",
+            "source_note": "Fonte e licença revisadas",
+            "content_checked": True,
+            "rights_checked": True,
+        }])
+        self.assertEqual(second["status"], "ready_human_reviewed")
+        self.assertEqual(second["human_approved_count"], 2)
+        self.assertEqual(
+            [scene["assigned_material_file"] for scene in second["scenes"]],
+            ["portrait.mp4", "history.mp4"],
+        )
 
     def test_no_automatic_generation_or_secrets(self):
         # Importing the module never fetches, converts, publishes or chooses
