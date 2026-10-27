@@ -133,7 +133,7 @@ def load_review_workspace(
         if not isinstance(record, dict):
             continue
         name = record.get("local_file")
-        if name in paths and name not in source_metadata:
+        if isinstance(name, str) and name in paths and name not in source_metadata:
             source_metadata[name] = {
                 "provider": str(record.get("provider") or "não informado")[:80],
                 "source_page": str(record.get("source_page") or "")[:400],
