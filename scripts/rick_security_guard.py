@@ -38,6 +38,10 @@ def risky_path(raw: str) -> bool:
     normalized = raw.replace("\\", "/").strip("/")
     if not normalized or normalized.startswith("../"):
         return True
+    # Tracked public Streamlit UI defaults are not credential storage.
+    # The file is still scanned for high-confidence secret patterns.
+    if normalized == "webui/.streamlit/config.toml":
+        return False
     p = PurePosixPath(normalized)
     lower_parts = {v.lower() for v in p.parts}
     if lower_parts & BAD_PARTS:
