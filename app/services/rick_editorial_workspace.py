@@ -24,6 +24,7 @@ _TASK_ID = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 _EXTENSIONS = frozenset({".mp4", ".mov", ".mkv", ".webm", ".avi"})
 _REVIEW_FILE = "rick_editorial_review.json"
 _MAX_SCRIPT_BYTES = 4 * 1024 * 1024
+_MAX_LEGACY_AUDIO_BYTES = 256 * 1024 * 1024
 
 
 def task_folder(tasks_root: str | Path, task_id: str) -> Path:
@@ -60,10 +61,36 @@ def _preview_fingerprint(preview: Mapping[str, Any]) -> str:
 
 
 
+def _measure_legacy_local_audio(folder: Path) -> float | None:
+    """Measure only the task's standard audio.mp3, without external requests.
+
+    Historical task state can be absent after restarting/migrating machines.
+    Never accept a manifest-provided path or infer narration duration from
+    a final edited video with music/fades/trailing silence.
+    """
+    audio = folder / "audio.mp3"
+    try:
+        if (not audio.is_file() or audio.is_symlink()
+                or audio.resolve().parent != folder
+                or not 0 < audio.stat().st_size <= _MAX_LEGACY_AUDIO_BYTES):
+            return None
+        # Import only for legacy recovery to avoid decoding on every UI rerun.
+        from app.services import voice
+
+        measured = float(voice.get_audio_duration(str(audio)))
+    except (OSError, TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(measured) or not 0 < measured <= 1800:
+        return None
+    return round(measured, 3)
+
+
 def _reconstruct_legacy_preview(
     manifest: Mapping[str, Any],
     safe_paths: Mapping[str, str],
     audio_duration: Any,
+    *,
+    folder: Path | None = None,
 ) -> dict[str, Any]:
     """Offline estimate from historical task records; never invents assets.
 
@@ -86,6 +113,8 @@ def _reconstruct_legacy_preview(
             diagnostic = quality.get("audio_duration")
             if isinstance(diagnostic, Mapping):
                 audio_duration = diagnostic.get("seconds")
+    if audio_duration is None and folder is not None:
+        audio_duration = _measure_legacy_local_audio(folder)
     if isinstance(audio_duration, bool):
         audio_duration = None
     try:
@@ -222,7 +251,9 @@ def load_review_workspace(
     preview = manifest.get("rick_scene_candidate_preview")
     recovered = not isinstance(preview, dict)
     if recovered:
-        preview = _reconstruct_legacy_preview(manifest, paths, audio_duration)
+        preview = _reconstruct_legacy_preview(
+            manifest, paths, audio_duration, folder=folder
+        )
     scenes = preview.get("scenes")
     if (
         not isinstance(scenes, list)
@@ -282,7 +313,9 @@ def save_editorial_workspace_review(
             manifest.get("material_sources", []), downloaded_files,
             cache_dir=cache_dir,
         )
-        preview = _reconstruct_legacy_preview(manifest, safe_paths, audio_duration)
+        preview = _reconstruct_legacy_preview(
+            manifest, safe_paths, audio_duration, folder=folder
+        )
     if preview_sha256 != _preview_fingerprint(preview):
         raise ValueError("A prévia de cenas foi alterada. Recarregue a revisão.")
     report = build_editorial_review(preview, downloaded_files, decisions)
