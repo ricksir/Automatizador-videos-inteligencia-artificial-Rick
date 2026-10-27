@@ -281,6 +281,8 @@ def load_review_workspace(
             source_metadata[name] = {
                 "provider": str(record.get("provider") or "não informado")[:80],
                 "source_page": str(record.get("source_page") or "")[:400],
+                "search_term": str(record.get("search_term") or "")[:150],
+                "asset_id": str(record.get("asset_id") or "")[:100],
             }
     return {
         "task_id": task_id,
