@@ -79,6 +79,9 @@ def build_editorial_review(
             "editorial_source_note": None,
             "editorial_rights_checked": False,
             "editorial_content_checked": False,
+            # Candidate suggestions must never be mistaken for approved files.
+            "assigned_material_file": None,
+            "match_status": "editorial_review_required",
         })
         if decision is None:
             blockers.append({"scene_number": index, "code": "review_missing"})
