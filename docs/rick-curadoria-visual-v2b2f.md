@@ -63,7 +63,7 @@ git switch main
 git pull --ff-only origin main
 git fetch origin
 git switch -c feature/rick-curadoria-visual-v2b2f --track origin/feature/rick-curadoria-visual-v2b2f
-uv run pytest -q --basetemp "$env:LOCALAPPDATA\Rick\pytest-curadoria-v2b2f" test/services/test_rick_visual_curation.py test/services/test_rick_editorial_workspace.py test/services/test_rick_editorial_review.py test/services/test_rick_scene_timeline.py test/services/test_rick_pipeline.py test/services/test_rick_scene_pipeline.py
+powershell -ExecutionPolicy Bypass -File .\scripts\rick_validar_curadoria.ps1
 ```
 
 Depois, abra `.\webui.bat` e confirme que o painel funciona nos dois
