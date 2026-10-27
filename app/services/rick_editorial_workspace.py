@@ -73,7 +73,7 @@ def _reconstruct_legacy_preview(
     """
     script = manifest.get("script")
     if not isinstance(script, str) or not script.strip():
-        raise ValueError("Tarefa antiga sem texto do roteiro preservado.")
+        raise ValueError("Tarefa sem prévia por cena e sem texto do roteiro preservado.")
     records = manifest.get("material_sources")
     if not isinstance(records, list) or not records or not safe_paths:
         raise ValueError(
