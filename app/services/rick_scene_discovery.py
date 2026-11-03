@@ -45,6 +45,41 @@ def _trusted_video_url(url: str) -> bool:
     )
 
 
+
+def _candidate_download_variants(candidate: object) -> list[str]:
+    """Primary URL plus up to four *verified-host* smaller editorial options."""
+    original = getattr(candidate, "url", None)
+    if not _trusted_video_url(original):
+        return []
+    urls = [original]
+    info = getattr(candidate, "source_info", None)
+    if not isinstance(info, dict):
+        return urls
+    alternatives = info.get("editorial_rendition_alternatives")
+    if not isinstance(alternatives, list):
+        return urls
+    for variant in alternatives[:8]:
+        if not isinstance(variant, dict):
+            continue
+        url = variant.get("url")
+        if not _trusted_video_url(url) or url in urls:
+            continue
+        try:
+            w = int(variant["width"])
+            h = int(variant["height"])
+            size = variant.get("size_bytes")
+            size = int(size) if size is not None else None
+        except (TypeError, ValueError, KeyError, OverflowError):
+            continue
+        if (w < 360 or h < 640 or h <= w
+                or (size is not None and (size <= 0 or size > _MAX_VIDEO))):
+            continue
+        urls.append(url)
+        if len(urls) >= 5:
+            break
+    return urls
+
+
 class StockDownloadError(ValueError):
     """Stable, credential-free cause for a rejected stock clip."""
 
@@ -282,6 +317,8 @@ def discover_scene_media(
     attempted: set[tuple[str, str]] = set()
     attempted_count = 0
     skipped = {"duplicate": 0, "invalid_source": 0, "download_failed": 0}
+    lower_rendition_selected = 0
+    oversized_primary_recovered = 0
     if provider and max_clips:
         imported_stock = 0
         for index in ordered:
@@ -352,23 +389,47 @@ def discover_scene_media(
                                 or not page.startswith("https://")):
                             skipped["invalid_source"] += 1
                             continue
-                        url = getattr(candidate, "url", None)
-                        if not _trusted_video_url(url):
+                        urls = _candidate_download_variants(candidate)
+                        if not urls:
                             skipped["invalid_source"] += 1
                             continue
-                        try:
-                            data = _download_stock_clip(url)
-                        except (ValueError, OSError, RuntimeError, requests.RequestException) as exc:
-                            skipped["download_failed"] += 1
-                            record = _failure_record(
-                                index, intent["kind"], active_provider, "download", exc,
-                            )
-                            diagnostics.append(record)
-                            issues.append(
-                                f"Vídeo {intent['kind']} ({active_provider}): "
-                                f"etapa=download, causa={record['code']}"
-                            )
+                        data = None
+                        had_oversized_primary = False
+                        chosen_rendition = 0
+                        for rendition_index, rendition_url in enumerate(urls):
+                            try:
+                                data = _download_stock_clip(rendition_url)
+                                chosen_rendition = rendition_index
+                                break
+                            except (ValueError, OSError, RuntimeError, requests.RequestException) as exc:
+                                # Oversize is a *per-rendition* failure, not a
+                                # reason to discard the whole provider asset.
+                                # Retry the next lower-size provider URL only
+                                # when it is separately listed and vetted.
+                                if (isinstance(exc, StockDownloadError)
+                                        and exc.code == "video_too_large"
+                                        and rendition_index + 1 < len(urls)):
+                                    had_oversized_primary = (
+                                        had_oversized_primary or rendition_index == 0
+                                    )
+                                    continue
+                                skipped["download_failed"] += 1
+                                record = _failure_record(
+                                    index, intent["kind"], active_provider,
+                                    "download", exc,
+                                )
+                                diagnostics.append(record)
+                                issues.append(
+                                    f"Vídeo {intent['kind']} ({active_provider}): "
+                                    f"etapa=download, causa={record['code']}"
+                                )
+                                break
+                        if data is None:
                             continue
+                        if chosen_rendition:
+                            lower_rendition_selected += 1
+                            if had_oversized_primary:
+                                oversized_primary_recovered += 1
                         try:
                             local = import_editorial_material(
                                 tasks_root, task_id, "video.mp4", data,
@@ -402,6 +463,8 @@ def discover_scene_media(
         "searched_intents": sorted(searched),
         "search_requests": attempted_count,
         "skipped_candidates": skipped,
+        "smaller_renditions_used": lower_rendition_selected,
+        "oversized_primaries_recovered": oversized_primary_recovered,
         "diagnostics": diagnostics[:40],
         "failure_count": len(diagnostics),
         "priority_scene_numbers": priority,
