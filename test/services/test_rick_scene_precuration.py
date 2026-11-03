@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import rick_scene_discovery as discovery
-from app.services.rick_scene_precuration import build_precuration, scene_intent
+from app.services.rick_scene_precuration import (
+    build_precuration, scene_intent, scene_search_context,
+)
 from app.services.rick_precuration_workspace import (
     _inventory_signature, load_precuration, run_scene_precuration,
 )
@@ -238,3 +240,86 @@ def test_old_precuration_does_not_survive_preview_change(tmp_path, monkeypatch):
     run_scene_precuration(root, "task-123", [], subject="O filósofo Gramsci")
     changed = {**workspace, "preview_sha256": "b" * 64}
     assert load_precuration(root, "task-123", changed) is None
+
+
+def test_context_search_reconstructs_fragment_without_changing_scene_times():
+    fragments = [
+        {"text": "a sociedade e como", "start_seconds": 2, "end_seconds": 4},
+        {"text": "grupos podem mudar isso sem", "start_seconds": 4, "end_seconds": 6},
+        {"text": "precisar de revoluções violentas.", "start_seconds": 6, "end_seconds": 8},
+    ]
+    intent = scene_search_context(
+        fragments, 0, "O filósofo Gramsci e suas ideias",
+    )
+    assert intent["kind"] == "demonstrations"
+    assert intent["context_derived"] is True
+    assert intent["text"] == "a sociedade e como"
+    assert intent["alignment"] == "estimated"
+    assert fragments[0]["start_seconds"] == 2
+
+
+def test_discovery_searches_unresolved_scenes_before_old_candidates(monkeypatch):
+    queries = []
+
+    def fake_search(query, *_args):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(
+        discovery, "_stock_provider", lambda: ("pexels", fake_search),
+    )
+    result = discovery.discover_scene_media(
+        "/unused", "task-1", subject="História geral",
+        scenes=[
+            {"text": "Nas eleições as pessoas participam da votação"},
+            {"text": "Livros e manuscritos mostram documentos antigos"},
+        ],
+        source_metadata={},
+        priority_scene_numbers=[2, 1],
+        max_stills=0,
+    )
+    assert queries == [
+        "historical books documents manuscript",
+        "elections voting ballot people",
+    ]
+    assert result["priority_scene_numbers"] == [2, 1]
+
+
+def test_discovery_collects_two_distinct_contextual_videos(monkeypatch):
+    imported = []
+    clips = [
+        SimpleNamespace(
+            url=f"https://videos.pexels.com/video-files/{n}/clip.mp4",
+            source_info={
+                "asset_id": str(n),
+                "source_page": f"https://www.pexels.com/video/{n}/",
+            },
+        )
+        for n in (11, 12, 13)
+    ]
+    monkeypatch.setattr(
+        discovery, "_stock_provider", lambda: ("pexels", lambda *a: clips),
+    )
+    monkeypatch.setattr(discovery, "_download_stock_clip", lambda url: b"MP4")
+    monkeypatch.setattr(
+        discovery, "import_editorial_material",
+        lambda *a, **kw: (imported.append(kw) or f"saved-{len(imported)}.mp4"),
+    )
+    report = discovery.discover_scene_media(
+        "/unused", "task-1", subject="Mundo político",
+        scenes=[{"text": "Nas eleições brasileiras as pessoas votam"}],
+        source_metadata={}, max_stills=0, max_clips=2,
+    )
+    assert report["imported_count"] == 2
+    assert [r["asset_id"] for r in imported] == ["pexels:11", "pexels:12"]
+    assert report["rights_verified"] is False
+
+
+def test_discovery_priority_rejects_invalid_indices():
+    with pytest.raises(ValueError, match="prioritárias"):
+        discovery.discover_scene_media(
+            "/unused", "task-1", subject="História geral",
+            scenes=[{"text": "Nas eleições"}], source_metadata={},
+            priority_scene_numbers=[0],
+            max_stills=0, max_clips=0,
+        )
