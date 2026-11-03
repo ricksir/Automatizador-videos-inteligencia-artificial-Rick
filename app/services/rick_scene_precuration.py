@@ -98,6 +98,9 @@ def _score(scene: Mapping, intent: Mapping, name: str, meta: Mapping) -> dict:
     if relevant:
         score += min(12 * relevant, 36)
         evidence.append("contexto_de_cena_nos_metadados")
+    if intent_query_tokens and _norm(intent["query"]) == term:
+        score += 16
+        evidence.append("consulta_especifica_de_cena_exata")
     source_scene = meta.get("scene_number")
     if (type(source_scene) is int and source_scene == scene.get("number")):
         score += 30
