@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -44,33 +45,112 @@ def _trusted_video_url(url: str) -> bool:
     )
 
 
+class StockDownloadError(ValueError):
+    """Stable, credential-free cause for a rejected stock clip."""
+
+    def __init__(self, code: str, *, retryable: bool = False):
+        self.code = code
+        self.retryable = retryable
+        super().__init__(code)
+
+
 def _download_stock_clip(url: str) -> bytes:
-    """Bounded HTTPS MP4 transfer; never follow provider/CDN redirects."""
+    """Bounded HTTPS MP4 transfer; retry transient errors on the *same* URL.
+
+    Invalid bytes, permissions, and format failures are final. Never issue a
+    new paid-generation request and never follow redirects or arbitrary URLs.
+    """
     if not _trusted_video_url(url):
-        raise ValueError("Fonte de vídeo fora dos domínios permitidos.")
-    try:
-        with requests.get(
-            url, timeout=(8, 45), stream=True, allow_redirects=False
-        ) as response:
-            if response.status_code != 200:
-                raise ValueError("Fonte de vídeo indisponível ou redirecionada.")
-            mime = str(response.headers.get("Content-Type") or "").split(";")[0].lower()
-            if mime not in {"video/mp4", "application/octet-stream"}:
-                raise ValueError("O provedor não retornou um MP4.")
-            size = response.headers.get("Content-Length")
-            if size and int(size) > _MAX_VIDEO:
-                raise ValueError("Vídeo excede o limite de 64 MB.")
-            contents = bytearray()
-            for chunk in response.iter_content(chunk_size=256 * 1024):
-                contents.extend(chunk)
-                if len(contents) > _MAX_VIDEO:
-                    raise ValueError("Vídeo excede o limite de 64 MB.")
-    except requests.RequestException as exc:
-        raise RuntimeError("Falha ao obter vídeo do banco de mídias.") from exc
-    data = bytes(contents)
-    if len(data) < 16 or data[4:8] != b"ftyp":
-        raise ValueError("Fonte retornou um arquivo MP4 inválido.")
-    return data
+        raise StockDownloadError("source_host_not_allowed")
+    for attempt in range(3):
+        try:
+            with requests.get(
+                url, timeout=(8, 45), stream=True, allow_redirects=False
+            ) as response:
+                status = response.status_code
+                if status != 200:
+                    if status == 429:
+                        raise StockDownloadError("http_rate_limited", retryable=True)
+                    if status in (500, 502, 503, 504):
+                        raise StockDownloadError("http_server_error", retryable=True)
+                    if status in (301, 302, 303, 307, 308):
+                        raise StockDownloadError("http_redirect_disallowed")
+                    if status in (401, 403):
+                        raise StockDownloadError("http_access_denied")
+                    if status == 404:
+                        raise StockDownloadError("http_not_found")
+                    raise StockDownloadError("http_response_rejected")
+                mime = str(response.headers.get("Content-Type") or "").split(";")[0].lower()
+                if mime not in {"video/mp4", "application/octet-stream"}:
+                    raise StockDownloadError("unexpected_content_type")
+                length = response.headers.get("Content-Length")
+                if length:
+                    try:
+                        size = int(length)
+                    except (TypeError, ValueError) as exc:
+                        raise StockDownloadError("invalid_content_length") from exc
+                    if size > _MAX_VIDEO or size < 0:
+                        raise StockDownloadError("video_too_large")
+                contents = bytearray()
+                for chunk in response.iter_content(chunk_size=256 * 1024):
+                    contents.extend(chunk)
+                    if len(contents) > _MAX_VIDEO:
+                        raise StockDownloadError("video_too_large")
+            data = bytes(contents)
+            if len(data) < 16 or data[4:8] != b"ftyp":
+                raise StockDownloadError("invalid_mp4_header")
+            return data
+        except StockDownloadError as exc:
+            if not exc.retryable or attempt == 2:
+                raise
+        except requests.Timeout as exc:
+            if attempt == 2:
+                raise StockDownloadError("download_timeout", retryable=True) from exc
+        except requests.RequestException as exc:
+            if attempt == 2:
+                raise StockDownloadError("download_network_error", retryable=True) from exc
+        time.sleep(0.2 * (attempt + 1))
+    raise StockDownloadError("download_retry_exhausted", retryable=True)
+
+
+def _failure_code(error: Exception, stage: str) -> str:
+    """Only permit finite, public diagnostic labels; never stringify URLs/keys."""
+    if isinstance(error, StockDownloadError):
+        return error.code
+    if stage == "import":
+        message = str(error).casefold()
+        if "limite de 80 mídias" in message:
+            return "catalog_capacity_reached"
+        if "arquivo mp4 inválido" in message:
+            return "invalid_mp4_import"
+        if "conversão" in message or "ffmpeg" in message:
+            return "ffmpeg_conversion_failed"
+        if "catálogo" in message or "registro" in message:
+            return "editorial_catalog_invalid"
+        return "editorial_import_failed"
+    if isinstance(error, requests.Timeout):
+        return "search_timeout"
+    if isinstance(error, requests.RequestException):
+        return "search_network_error"
+    return "search_provider_exception"
+
+
+def _failure_record(
+    scene_number: int, kind: str, provider: str, stage: str, error: Exception,
+) -> dict:
+    """Public diagnostic record with no URL, API key or exception message."""
+    return {
+        "scene": scene_number,
+        "intent": kind,
+        "provider": provider,
+        "stage": stage,
+        "code": _failure_code(error, stage),
+        "exception_type": type(error).__name__[:55],
+        "retryable": (
+            bool(getattr(error, "retryable", False)) if stage == "download"
+            else isinstance(error, (requests.Timeout, requests.ConnectionError))
+        ),
+    }
 
 
 def _stock_provider() -> tuple[str | None, object | None]:
@@ -160,6 +240,7 @@ def discover_scene_media(
     }
     imported: list[dict] = []
     issues: list[str] = []
+    diagnostics: list[dict] = []
 
     person = person_anchor(subject)
     if person and max_stills:
@@ -233,10 +314,25 @@ def discover_scene_media(
                     attempted_count += 1
                     try:
                         candidates = active_search(query, 3, VideoAspect.portrait) or []
-                    except (OSError, ValueError, RuntimeError) as exc:
+                    except (OSError, ValueError, RuntimeError, requests.RequestException) as exc:
+                        record = _failure_record(
+                            index, intent["kind"], active_provider, "search", exc,
+                        )
+                        diagnostics.append(record)
                         issues.append(
                             f"Busca {intent['kind']} ({active_provider}): "
-                            f"{type(exc).__name__}"
+                            f"etapa={record['stage']}, causa={record['code']}"
+                        )
+                        continue
+                    if not isinstance(candidates, (list, tuple)):
+                        record = _failure_record(
+                            index, intent["kind"], active_provider, "search",
+                            TypeError("unexpected results type"),
+                        )
+                        diagnostics.append(record)
+                        issues.append(
+                            f"Busca {intent['kind']} ({active_provider}): "
+                            "etapa=search, causa=search_provider_exception"
                         )
                         continue
                     for candidate in candidates[:12]:
@@ -262,6 +358,18 @@ def discover_scene_media(
                             continue
                         try:
                             data = _download_stock_clip(url)
+                        except (ValueError, OSError, RuntimeError, requests.RequestException) as exc:
+                            skipped["download_failed"] += 1
+                            record = _failure_record(
+                                index, intent["kind"], active_provider, "download", exc,
+                            )
+                            diagnostics.append(record)
+                            issues.append(
+                                f"Vídeo {intent['kind']} ({active_provider}): "
+                                f"etapa=download, causa={record['code']}"
+                            )
+                            continue
+                        try:
                             local = import_editorial_material(
                                 tasks_root, task_id, "video.mp4", data,
                                 scene_number=index,
@@ -271,8 +379,13 @@ def discover_scene_media(
                             )
                         except (ValueError, OSError, RuntimeError) as exc:
                             skipped["download_failed"] += 1
+                            record = _failure_record(
+                                index, intent["kind"], active_provider, "import", exc,
+                            )
+                            diagnostics.append(record)
                             issues.append(
-                                f"Vídeo {intent['kind']}: {type(exc).__name__}"
+                                f"Vídeo {intent['kind']} ({active_provider}): "
+                                f"etapa=import, causa={record['code']}"
                             )
                             continue
                         existing.add(key)
@@ -289,6 +402,8 @@ def discover_scene_media(
         "searched_intents": sorted(searched),
         "search_requests": attempted_count,
         "skipped_candidates": skipped,
+        "diagnostics": diagnostics[:40],
+        "failure_count": len(diagnostics),
         "priority_scene_numbers": priority,
         "issues": issues[:20],
         "visually_verified": False,

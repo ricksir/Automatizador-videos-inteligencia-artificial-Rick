@@ -373,8 +373,26 @@ def render_editorial_panel(
                     "Candidatos descartados na busca: "
                     f"{missed.get('duplicate', 0)} repetidos, "
                     f"{missed.get('invalid_source', 0)} sem origem/URL elegível, "
-                    f"{missed.get('download_failed', 0)} com falha no download."
+                    f"{missed.get('download_failed', 0)} com falha no download/importação."
                 )
+            diagnostics = discovery.get("diagnostics", [])
+            if diagnostics:
+                st.caption(
+                    "Falhas classificadas: "
+                    + str(discovery.get("failure_count", len(diagnostics)))
+                    + ". A busca continua por outros candidatos quando possível."
+                )
+                st.dataframe([
+                    {
+                        "Cena": item["scene"],
+                        "Contexto": item["intent"],
+                        "Fonte": item["provider"],
+                        "Etapa": item["stage"],
+                        "Causa": item["code"],
+                        "Transitória": "sim" if item["retryable"] else "não",
+                    }
+                    for item in diagnostics[:20]
+                ], hide_index=True, use_container_width=True)
             if discovery.get("issues"):
                 st.warning("Avisos da busca: " + "; ".join(discovery["issues"][:5]))
 
