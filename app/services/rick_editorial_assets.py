@@ -235,6 +235,76 @@ def excluded_editorial_materials(tasks_root: str | Path, task_id: str) -> set[st
     return set(names)
 
 
+def _invalidate_excluded_approvals(folder: Path, name: str) -> None:
+    """Permanently revoke saved approvals referring to a discarded filename.
+
+    Without persistence, restoring a discarded clip would silently reactivate
+    its old approval. Revoke before hiding the asset (fail closed). Other
+    scenes and explicit rejections remain untouched.
+    """
+    review_file = folder / "rick_editorial_review.json"
+    if not review_file.exists():
+        return
+    if (review_file.is_symlink() or not review_file.is_file()
+            or review_file.stat().st_size > 1_000_000):
+        raise ValueError("Registro de revisão editorial inválido.")
+    try:
+        document = json.loads(review_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Não foi possível validar a revisão editorial salva.") from exc
+    if not isinstance(document, dict) or not isinstance(document.get("review"), dict):
+        raise ValueError("Registro de revisão editorial inválido.")
+    review = document["review"]
+    scenes = review.get("scenes")
+    if not isinstance(scenes, list) or len(scenes) > 60:
+        raise ValueError("Cenas editoriais salvas inválidas.")
+    invalidated = []
+    for index, scene in enumerate(scenes, 1):
+        if (isinstance(scene, dict)
+                and scene.get("editorial_review") == "approved_by_human"
+                and scene.get("assigned_material_file") == name):
+            scene.update({
+                "editorial_review": "unreviewed",
+                "assigned_material_file": None,
+                "match_status": "editorial_review_required",
+                "editorial_source_note": None,
+                "editorial_content_checked": False,
+                "editorial_rights_checked": False,
+            })
+            invalidated.append(index)
+    if not invalidated:
+        return
+    prior = review.get("blockers")
+    blockers = [
+        record for record in prior if isinstance(record, dict)
+        and record.get("scene_number") not in invalidated
+    ] if isinstance(prior, list) else []
+    blockers.extend(
+        {"scene_number": index, "code": "review_missing"} for index in invalidated
+    )
+    review["blockers"] = sorted(
+        blockers, key=lambda record: (record.get("scene_number") or 0)
+    )
+    review["human_approved_count"] = sum(
+        isinstance(scene, dict) and scene.get("editorial_review") == "approved_by_human"
+        for scene in scenes
+    )
+    review["status"] = "blocked"
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, dir=folder,
+            prefix=".rick-revoked-", suffix=".tmp",
+        ) as dest:
+            temporary = Path(dest.name)
+            json.dump(document, dest, ensure_ascii=False, indent=2)
+        os.replace(temporary, review_file)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def exclude_editorial_material(tasks_root: str | Path, task_id: str, name: str) -> None:
     """Hide a human-rejected basename throughout this task without deleting media."""
     folder = task_folder(tasks_root, task_id)
@@ -244,6 +314,7 @@ def exclude_editorial_material(tasks_root: str | Path, task_id: str, name: str) 
     excluded.add(name)
     if len(excluded) > 250:
         raise ValueError("Limite de exclusões atingido.")
+    _invalidate_excluded_approvals(folder, name)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
