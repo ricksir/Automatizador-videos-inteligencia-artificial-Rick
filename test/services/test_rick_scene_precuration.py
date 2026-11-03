@@ -323,3 +323,28 @@ def test_discovery_priority_rejects_invalid_indices():
             priority_scene_numbers=[0],
             max_stills=0, max_clips=0,
         )
+
+
+def test_contextual_search_candidate_is_ranked_for_short_speech_fragment():
+    """Searching the full sentence is useful only if ranking uses that context."""
+    scenes = [
+        {"text": "a sociedade e como", "search_term": "Gramsci theory"},
+        {"text": "grupos podem mudar isso sem", "search_term": "Gramsci theory"},
+        {"text": "precisar de revoluções violentas.", "search_term": "Gramsci theory"},
+    ]
+    materials = {
+        "peaceful-change.mp4": {
+            "search_term": "civil demonstration public gathering",
+            "title": "civil demonstration public gathering",
+            "scene_number": 1, "provider": "pexels",
+            "source_page": "https://www.pexels.com/video/11/",
+            "media_kind": "video",
+        }
+    }
+    report = build_precuration(
+        "O filósofo Gramsci", scenes, materials, list(materials)
+    )
+    assert report["scenes"][0]["intent"]["context_derived"] is True
+    assert report["scenes"][0]["primary"] == "peaceful-change.mp4"
+    assert report["scenes"][0]["status"] == "proposal_for_human_review"
+    assert report["scenes"][0]["visual_content_verified"] is False
