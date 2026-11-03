@@ -7,7 +7,6 @@ publication rights. Search is explicit and capped, and no approval is saved.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from app.services.rick_auto_commons import (
