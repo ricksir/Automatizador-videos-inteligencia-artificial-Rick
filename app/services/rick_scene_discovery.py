@@ -91,6 +91,36 @@ def _stock_provider() -> tuple[str | None, object | None]:
     return None, None
 
 
+
+_ALTERNATE_SEARCHES = {
+    "elections": ("voting ballot", "polling station"),
+    "institutions": ("parliament interior", "government chamber"),
+    "demonstrations": ("peaceful protest crowd", "public demonstration"),
+    "documents": ("old newspaper archives", "historical manuscript"),
+    "education": ("students university library", "people studying books"),
+    "ideas": ("people debating ideas", "group discussion books"),
+}
+
+
+def _secondary_stock_provider(primary: str) -> tuple[str | None, object | None]:
+    """Use an independently configured free stock catalog as fallback."""
+    options = (
+        ("pexels", "pexels_api_keys", material.search_videos_pexels),
+        ("pixabay", "pixabay_api_keys", material.search_videos_pixabay),
+    )
+    for provider, setting, fetch in options:
+        if provider == primary:
+            continue
+        value = config.app.get(setting)
+        if (isinstance(value, str) and value.strip()) or (
+            isinstance(value, (list, tuple)) and any(
+                isinstance(key, str) and key.strip() for key in value
+            )
+        ):
+            return provider, fetch
+    return None, None
+
+
 def discover_scene_media(
     tasks_root: str | Path,
     task_id: str,
@@ -101,6 +131,7 @@ def discover_scene_media(
     max_stills: int = 8,
     max_clips: int = 8,
     priority_scene_numbers: Sequence[int] | None = None,
+    search_variants: bool = False,
 ) -> dict:
     """Import distinct candidates; never reimport the same provider asset."""
     if (
@@ -108,6 +139,7 @@ def discover_scene_media(
         or not isinstance(source_metadata, Mapping)
         or type(max_stills) is not int or not 0 <= max_stills <= 10
         or type(max_clips) is not int or not 0 <= max_clips <= 12
+        or type(search_variants) is not bool
     ):
         raise ValueError("Solicitação de descoberta editorial inválida.")
     if priority_scene_numbers is not None and (
@@ -159,67 +191,104 @@ def discover_scene_media(
             })
 
     provider, search = _stock_provider()
+    fallback_provider, fallback_search = (
+        _secondary_stock_provider(provider) if search_variants and provider
+        else (None, None)
+    )
     if not provider and max_clips:
         issues.append("Nenhuma chave Pexels/Pixabay configurada para vídeos contextuais.")
     searched: set[str] = set()
+    attempted: set[tuple[str, str]] = set()
+    attempted_count = 0
+    skipped = {"duplicate": 0, "invalid_source": 0, "download_failed": 0}
     if provider and max_clips:
         imported_stock = 0
         for index in ordered:
-            if imported_stock >= max_clips:
+            if imported_stock >= max_clips or attempted_count >= 16:
                 break
             intent = scene_search_context(scenes, index - 1, subject)
-            # A generic query like "Gramsci Brazil" can retrieve waterfalls or
-            # unrelated scenes. Only search known semantic categories.
             if intent["kind"] in {"general", "historical_person"}:
                 continue
-            query = intent["query"]
-            if query in searched:
-                continue
-            searched.add(query)
-            try:
-                candidates = search(query, 3, VideoAspect.portrait) or []
-            except (OSError, ValueError, RuntimeError) as exc:
-                issues.append(f"Busca {intent['kind']}: {type(exc).__name__}")
-                continue
-            imported_for_query = 0
-            for candidate in candidates[:12]:
-                if imported_stock >= max_clips or imported_for_query >= 2:
+            searches = [intent["query"]]
+            if search_variants:
+                searches.extend(_ALTERNATE_SEARCHES.get(intent["kind"], ()))
+            sources = [(provider, search)]
+            if fallback_provider and fallback_search:
+                sources.append((fallback_provider, fallback_search))
+            imported_for_scene = 0
+            # Search alternate wording or another configured provider when
+            # the first search yields no usable licensed-media candidate.
+            for query in searches:
+                if imported_for_scene >= 2 or imported_stock >= max_clips:
                     break
-                info = getattr(candidate, "source_info", None)
-                if not isinstance(info, dict):
-                    continue
-                unique = info.get("asset_id")
-                page = info.get("source_page")
-                key = f"{provider}:{unique}" if unique else ""
-                if not key or key in existing or not isinstance(page, str) or not page.startswith("https://"):
-                    continue
-                url = getattr(candidate, "url", None)
-                if not _trusted_video_url(url):
-                    continue
-                try:
-                    data = _download_stock_clip(url)
-                    local = import_editorial_material(
-                        tasks_root, task_id, "video.mp4", data,
-                        scene_number=index,
-                        source_note=f"{provider}: {page}"[:350],
-                        search_term=query, title=query,
-                        asset_id=key[:150],
-                    )
-                except (ValueError, OSError, RuntimeError) as exc:
-                    issues.append(f"Vídeo {intent['kind']}: {type(exc).__name__}")
-                    continue
-                existing.add(key)
-                imported.append({
-                    "file": local, "media_kind": "stock_video",
-                    "source_page": page,
-                    "license_metadata": "não verificada automaticamente",
-                })
-                imported_stock += 1
-                imported_for_query += 1
+                for active_provider, active_search in sources:
+                    if (imported_for_scene >= 2 or imported_stock >= max_clips
+                            or attempted_count >= 16):
+                        break
+                    dedupe = (active_provider, query)
+                    if dedupe in attempted:
+                        continue
+                    attempted.add(dedupe)
+                    searched.add(query)
+                    attempted_count += 1
+                    try:
+                        candidates = active_search(query, 3, VideoAspect.portrait) or []
+                    except (OSError, ValueError, RuntimeError) as exc:
+                        issues.append(
+                            f"Busca {intent['kind']} ({active_provider}): "
+                            f"{type(exc).__name__}"
+                        )
+                        continue
+                    for candidate in candidates[:12]:
+                        if imported_stock >= max_clips or imported_for_scene >= 2:
+                            break
+                        info = getattr(candidate, "source_info", None)
+                        if not isinstance(info, dict):
+                            skipped["invalid_source"] += 1
+                            continue
+                        unique = info.get("asset_id")
+                        page = info.get("source_page")
+                        key = f"{active_provider}:{unique}" if unique else ""
+                        if key in existing:
+                            skipped["duplicate"] += 1
+                            continue
+                        if (not key or not isinstance(page, str)
+                                or not page.startswith("https://")):
+                            skipped["invalid_source"] += 1
+                            continue
+                        url = getattr(candidate, "url", None)
+                        if not _trusted_video_url(url):
+                            skipped["invalid_source"] += 1
+                            continue
+                        try:
+                            data = _download_stock_clip(url)
+                            local = import_editorial_material(
+                                tasks_root, task_id, "video.mp4", data,
+                                scene_number=index,
+                                source_note=f"{active_provider}: {page}"[:350],
+                                search_term=query, title=query,
+                                asset_id=key[:150],
+                            )
+                        except (ValueError, OSError, RuntimeError) as exc:
+                            skipped["download_failed"] += 1
+                            issues.append(
+                                f"Vídeo {intent['kind']}: {type(exc).__name__}"
+                            )
+                            continue
+                        existing.add(key)
+                        imported.append({
+                            "file": local, "media_kind": "stock_video",
+                            "source_page": page,
+                            "license_metadata": "não verificada automaticamente",
+                        })
+                        imported_stock += 1
+                        imported_for_scene += 1
     return {
         "imported_count": len(imported),
         "imported": imported,
         "searched_intents": sorted(searched),
+        "search_requests": attempted_count,
+        "skipped_candidates": skipped,
         "priority_scene_numbers": priority,
         "issues": issues[:20],
         "visually_verified": False,
