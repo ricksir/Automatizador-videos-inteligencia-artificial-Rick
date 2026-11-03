@@ -90,8 +90,12 @@ def load_editorial_assets(tasks_root: str | Path, task_id: str) -> tuple[dict[st
         metadata[name] = {
             "provider": "Importação local (não verificada)",
             "source_page": str(record.get("source_page") or "")[:350],
-            "search_term": f"Adicionado para cena {record.get('scene_number')}",
-            "asset_id": name,
+            "search_term": str(record.get("search_term")
+                               or f"Adicionado para cena {record.get('scene_number')}")[:150],
+            "title": str(record.get("title") or "")[:150],
+            "media_kind": str(record.get("kind") or "")[:40],
+            "scene_number": record.get("scene_number"),
+            "asset_id": str(record.get("asset_id") or name)[:100],
         }
     return paths, metadata
 
@@ -153,6 +157,8 @@ def _image_to_video(image: Path, output: Path) -> None:
 def import_editorial_material(
     tasks_root: str | Path, task_id: str, upload_name: str, data: bytes,
     *, scene_number: int, source_note: str,
+    search_term: str | None = None, title: str | None = None,
+    asset_id: str | None = None,
 ) -> str:
     """Add one task-owned file after explicit upload. No approval is created."""
     folder = task_folder(tasks_root, task_id)
@@ -161,6 +167,11 @@ def import_editorial_material(
         raise ValueError("Número de cena inválido.")
     if not isinstance(source_note, str) or not source_note.strip() or len(source_note) > 350:
         raise ValueError("Informe a origem e a condição de uso da mídia.")
+    for optional in (search_term, title, asset_id):
+        if optional is not None and (
+            not isinstance(optional, str) or len(optional) > 150
+        ):
+            raise ValueError("Metadados de curadoria inválidos.")
     records = _entries(folder)
     if len(records) >= _MAX_ASSETS:
         raise ValueError("Limite de 80 mídias editoriais atingido.")
@@ -187,6 +198,9 @@ def import_editorial_material(
             "scene_number": scene_number,
             "source_page": source_note.strip(),
             "kind": "video" if ext == ".mp4" else "image_converted_locally",
+            "search_term": search_term or f"Adicionado para cena {scene_number}",
+            "title": title or "",
+            "asset_id": asset_id or name,
         })
         temporary_catalog = None
         try:
