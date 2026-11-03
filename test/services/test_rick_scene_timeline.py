@@ -2,7 +2,6 @@
 
 import copy
 import json
-import math
 
 import pytest
 

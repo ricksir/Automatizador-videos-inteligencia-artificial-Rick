@@ -1,8 +1,12 @@
 """Offline tests for the local editorial workspace; no API keys, network or FFmpeg."""
 import json
+import shutil
 from pathlib import Path
 
 import pytest
+
+from app.services.rick_editorial_assets import exclude_editorial_material
+from app.services.rick_visual_curation import retained_human_decisions
 
 from app.services.rick_editorial_workspace import (
     available_material_paths,
@@ -88,6 +92,50 @@ def test_local_editorial_review_stays_in_separate_artifact(tmp_path):
     document = json.loads((folder / "rick_editorial_review.json").read_text(encoding="utf-8"))
     assert document["review"]["status"] == "ready_human_reviewed"
     assert load_review_workspace(root, "task-123", materials)["saved_review"]["human_approved_count"] == 2
+
+
+def test_saved_scene_persists_when_reviewing_next_scene(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    first_ws = load_review_workspace(root, "task-123", materials)
+    first_report = save_editorial_workspace_review(
+        root, "task-123", first_ws["preview_sha256"], materials, approvals()[:1]
+    )
+    assert first_report["human_approved_count"] == 1
+    second_ws = load_review_workspace(root, "task-123", materials)
+    retained = retained_human_decisions(
+        second_ws["saved_review"]["scenes"], exclude_scene=2
+    )
+    second_report = save_editorial_workspace_review(
+        root, "task-123", second_ws["preview_sha256"], materials,
+        retained + approvals()[1:],
+    )
+    assert second_report["status"] == "ready_human_reviewed"
+    reloaded = load_review_workspace(root, "task-123", materials)["saved_review"]
+    assert [scene["assigned_material_file"] for scene in reloaded["scenes"]] == [
+        "portrait.mp4", "election.mp4",
+    ]
+
+
+def test_review_and_exclusions_are_isolated_across_tasks(tmp_path):
+    root, folder, materials_a = create_task(tmp_path)
+    other_folder = root / "task-other"
+    shutil.copytree(folder, other_folder)
+    materials_b = [str(other_folder / Path(name).name) for name in materials_a]
+    a = load_review_workspace(root, "task-123", materials_a)
+    b = load_review_workspace(root, "task-other", materials_b)
+    save_editorial_workspace_review(
+        root, "task-123", a["preview_sha256"], materials_a, approvals()
+    )
+    assert load_review_workspace(
+        root, "task-other", materials_b
+    )["saved_review"] is None
+    exclude_editorial_material(root, "task-123", "portrait.mp4")
+    assert "portrait.mp4" not in load_review_workspace(
+        root, "task-123", materials_a
+    )["paths"]
+    clean_other = load_review_workspace(root, "task-other", materials_b)
+    assert "portrait.mp4" in clean_other["paths"]
+    assert clean_other["saved_review"] is None
 
 
 def test_partial_review_saved_only_as_blocked_draft(tmp_path):
@@ -427,10 +475,80 @@ def test_editorial_ui_requires_explicit_video_choice_when_unverified():
     )
     # Metadata ranking does not preselect a candidate.
     assert "ranked = order_review_materials(" in text
+    assert "groups = classify_review_materials(" in text
     assert "review_choices = [None, *ranked]" in text
-    assert "index=review_choices.index(selected_default)" in text
+    assert "index=review_choices.index(suggested_default)" in text
     assert 'if old.get("editorial_review") == "approved_by_human"' in text
     assert "if chosen is not None:" in text
-    # Distinct widget identity keeps old Streamlit choices from leaking into reviews.
-    assert "rick_editorial_material_v3_" in text
+    # Only a previously *saved human approval* can prepopulate a clip.
+    # Candidates (even highly ranked ones) must start at the None placeholder.
+    assert "review_choices = [None, *ranked]" in text
+    assert 'old.get("assigned_material_file")' in text
+    assert 'if old.get("editorial_review") == "approved_by_human" else None' in text
+    assert "if selected_default not in paths:" in text
+    assert "selected_default = None" in text
     assert "selected_default = scene.get(\"assigned_material_file\")" not in text
+    # Per-task/per-scene v4 key avoids reusing another scene's Streamlit selection.
+    assert 'key=f"rick_editorial_material_v4_{selected_id}_{idx}"' in text
+    assert "on_change=_select_scene_material" in text
+    assert 'args=(selected_id, idx, "suggested")' in text
+    assert 'args=(selected_id, idx, "other")' in text
+    # Clip changes clear evidence before a fresh saved approval can be issued.
+    assert text.index("suggested_choice = st.selectbox(") < text.index("with st.form(")
+    assert "chosen is None or not note.strip()" in text
+    assert "or not content_checked or not rights_checked" in text
+
+
+def test_changing_clip_clears_only_target_scene_and_task(monkeypatch):
+    """Streamlit evidence must not leak into other scenes or other tasks."""
+    from types import SimpleNamespace
+    from webui import rick_editorial_panel as panel
+
+    state = {}
+    for task_id in ("task-a", "task-b"):
+        for scene_number in (1, 2):
+            suffix = f"{task_id}_{scene_number}"
+            state[f"rick_editorial_decision_{suffix}"] = "Aprovar"
+            state[f"rick_editorial_source_{suffix}"] = "Fonte previamente conferida"
+            state[f"rick_editorial_content_{suffix}"] = True
+            state[f"rick_editorial_rights_{suffix}"] = True
+    unchanged = {
+        key: value for key, value in state.items()
+        if not key.endswith("task-a_1")
+    }
+    monkeypatch.setattr(panel, "st", SimpleNamespace(session_state=state))
+    panel._clear_scene_evidence("task-a", 1)
+
+    assert state["rick_editorial_decision_task-a_1"] == "Pendente"
+    assert state["rick_editorial_source_task-a_1"] == ""
+    assert state["rick_editorial_content_task-a_1"] is False
+    assert state["rick_editorial_rights_task-a_1"] is False
+    for key, value in unchanged.items():
+        assert state[key] == value
+
+
+def test_ranked_metadata_never_creates_human_approval(tmp_path):
+    """Even valid ranking and checked boxes cannot approve without clip choice."""
+    from app.services.rick_visual_curation import order_review_materials
+
+    root, _, materials = create_task(tmp_path)
+    workspace = load_review_workspace(root, "task-123", materials)
+    scene = workspace["preview"]["scenes"][0]
+    ranked = order_review_materials(
+        scene, workspace["source_metadata"], sorted(workspace["paths"])
+    )
+    assert ranked
+    assert [None, *ranked][0] is None
+
+    report = save_editorial_workspace_review(
+        root, "task-123", workspace["preview_sha256"], materials,
+        [{
+            "scene_number": 1, "decision": "approve", "selected_file": None,
+            "source_note": "Uma nota de origem não equivale a escolher vídeo",
+            "content_checked": True, "rights_checked": True,
+        }],
+    )
+    assert report["status"] == "blocked"
+    assert report["human_approved_count"] == 0
+    assert report["scenes"][0]["assigned_material_file"] is None
+    assert {"scene_number": 1, "code": "file_missing_or_ambiguous"} in report["blockers"]

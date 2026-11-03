@@ -6,6 +6,7 @@ import unittest
 from app.services.rick_editorial_review import build_editorial_review
 from app.services.rick_visual_curation import (
     commons_search_url,
+    classify_review_materials,
     inspect_visual_scenes,
     person_anchor,
     retained_human_decisions,
@@ -119,6 +120,58 @@ class VisualCurationTests(unittest.TestCase):
         self.assertEqual(ranked[0], "gr.mp4")
         self.assertEqual(ranked[-1], "waterfall.mp4")
         # A rank is never an approval or an image identity assertion.
+
+    def test_unmatched_gramsci_waterfall_stays_in_optional_library(self):
+        scene = {
+            "text": "Gramsci estudou como ideias dominam",
+            "search_term": "Gramsci theory",
+            "assigned_material_file": None,
+        }
+        sources = {
+            "waterfall.mp4": {"search_term": "Gramsci Brazil"},
+            "portrait.mp4": {"search_term": "Gramsci theory"},
+            "unknown.mp4": {"search_term": "nature waterfall"},
+        }
+        results = classify_review_materials(
+            scene, sources, list(sources), historical_person="Gramsci"
+        )
+        self.assertEqual(results["suggested"], ["portrait.mp4"])
+        self.assertEqual(set(results["other"]), {"waterfall.mp4", "unknown.mp4"})
+        self.assertEqual(
+            results["reasons"]["waterfall.mp4"],
+            "historical_name_metadata_only",
+        )
+        self.assertEqual(
+            results["reasons"]["unknown.mp4"],
+            "no_demonstrated_metadata_match",
+        )
+        self.assertFalse(results["visual_content_verified"])
+        self.assertFalse(results["human_approval_inferred"])
+
+    def test_absent_candidate_never_creates_a_default_selection(self):
+        results = classify_review_materials(
+            {"text": "Gramsci estudou", "search_term": "Gramsci theory",
+             "assigned_material_file": None},
+            {"waterfall.mp4": {"search_term": "Gramsci Brazil"}},
+            ["waterfall.mp4"],
+            historical_person="Gramsci",
+        )
+        self.assertEqual(results["suggested"], [])
+        self.assertEqual(results["other"], ["waterfall.mp4"])
+        self.assertIsNone([None, *results["suggested"]][0])
+
+    def test_matching_metadata_is_not_visual_or_human_approval(self):
+        results = classify_review_materials(
+            {"search_term": "historical photograph", "text": "Documento"},
+            {"clip.mp4": {"search_term": "  HISTORICAL photograph "}},
+            ["clip.mp4"],
+        )
+        self.assertEqual(results["suggested"], ["clip.mp4"])
+        self.assertEqual(
+            results["reasons"]["clip.mp4"], "exact_search_metadata_only"
+        )
+        self.assertFalse(results["visual_content_verified"])
+        self.assertFalse(results["human_approval_inferred"])
 
     def test_single_scene_roundtrip_preserves_other_human_review(self):
         preview = {"scenes": [
