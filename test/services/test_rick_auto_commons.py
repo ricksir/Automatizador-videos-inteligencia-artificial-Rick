@@ -56,6 +56,41 @@ def test_commons_license_and_filename_filter_fail_closed():
     assert commons._eligible_image(danger, "Gramsci") is None
 
 
+def test_gramsci_real_api_tracking_query_is_canonicalized_safely():
+    portrait = _candidate(
+        title="File:Gramsci.png",
+        url=(
+            "https://upload.wikimedia.org/wikipedia/commons/e/e6/Gramsci.png"
+            "?utm_source=commons.wikimedia.org"
+            "&utm_campaign=imageinfo&utm_content=thumbnail_unscaled"
+        ),
+    )
+    portrait["imageinfo"][0]["descriptionurl"] = (
+        "https://commons.wikimedia.org/wiki/File:Gramsci.png"
+    )
+    portrait["imageinfo"][0]["mime"] = "image/png"
+    found = commons._eligible_image(portrait, "Gramsci")
+    assert found is not None
+    assert found["image_url"] == (
+        "https://upload.wikimedia.org/wikipedia/commons/e/e6/Gramsci.png"
+    )
+    assert found["license"] == "Public domain"
+    assert not found["identity_verified"]
+    assert not found["license_legally_verified"]
+
+    unsafe = portrait.copy()
+    unsafe["imageinfo"] = [dict(portrait["imageinfo"][0])]
+    unsafe["imageinfo"][0]["url"] = (
+        "https://upload.wikimedia.org/wikipedia/commons/e/e6/Gramsci.png"
+        "?utm_source=evil.example&utm_campaign=imageinfo"
+    )
+    assert commons._eligible_image(unsafe, "Gramsci") is None
+    assert commons._canonical_media_url(
+        "https://upload.wikimedia.org/wikipedia/commons/e/e6/Gramsci.png"
+        "?redirect=https://evil.example"
+    ) is None
+
+
 def test_commons_cc0_needs_license_url_and_blocks_external_redirect():
     assert commons._eligible_image(
         _candidate(license_name="CC0 1.0", copyrighted="True"), "Gramsci"
