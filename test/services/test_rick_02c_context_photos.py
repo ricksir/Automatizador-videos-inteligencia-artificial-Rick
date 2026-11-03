@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from hashlib import sha256
-from types import SimpleNamespace
 
 import pytest
 
