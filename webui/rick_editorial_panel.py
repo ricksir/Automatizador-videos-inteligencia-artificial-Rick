@@ -270,6 +270,23 @@ def render_editorial_panel(
                 except (ValueError, OSError, RuntimeError) as exc:
                     st.error(f"Pré-curadoria bloqueada: {exc}")
                 else:
+                    # Populate only unset picker state; do not overwrite a
+                    # human-selected file or a previously saved approval.
+                    for suggestion in report["scenes"]:
+                        number = suggestion["scene_number"]
+                        key = f"rick_editorial_material_v4_{selected_id}_{number}"
+                        saved_scene = (
+                            old_scenes[number - 1]
+                            if number <= len(old_scenes) else {}
+                        )
+                        if (suggestion.get("primary")
+                                and st.session_state.get(key) is None
+                                and not (
+                                    isinstance(saved_scene, dict)
+                                    and saved_scene.get("editorial_review")
+                                    == "approved_by_human"
+                                )):
+                            st.session_state[key] = suggestion["primary"]
                     st.session_state[notice_key] = (
                         f"Pré-curadoria pronta: {report['proposed_count']}/"
                         f"{report['scene_count']} propostas; "
