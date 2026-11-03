@@ -338,7 +338,6 @@ def render_editorial_panel(
                 st.link_button(
                     "Pesquisar retratos/documentos no Wikimedia Commons",
                     triage["historical_image_search_url"],
-                    key=f"rick_editorial_commons_v1_{selected_id}_{idx}",
                 )
                 st.caption(
                     "Confira a autenticidade e a licença de cada arquivo no Commons; "
