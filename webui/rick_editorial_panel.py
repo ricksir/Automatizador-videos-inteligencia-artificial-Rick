@@ -373,7 +373,7 @@ def render_editorial_panel(
                     "Candidatos descartados na busca: "
                     f"{missed.get('duplicate', 0)} repetidos, "
                     f"{missed.get('invalid_source', 0)} sem origem/URL elegível, "
-                    f"{missed.get('download_failed', 0)} com falha no download."
+                    f"{missed.get('download_failed', 0)} com falha no download/importação."
                 )
             diagnostics = discovery.get("diagnostics", [])
             if diagnostics:
