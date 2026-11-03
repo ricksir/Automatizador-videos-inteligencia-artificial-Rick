@@ -65,7 +65,15 @@ def _eligible_image(page: dict, subject: str) -> dict | None:
     title = page.get("title")
     if not isinstance(title, str) or not title.startswith("File:"):
         return None
-    if not (3 <= len(subject) <= 100 and _normalized(subject) in _normalized(title)):
+    normalized_title = _normalized(title)
+    if not (3 <= len(subject) <= 100 and _normalized(subject) in normalized_title):
+        return None
+    # A street/avenue named after a historical person is not a portrait
+    # or document about that person's ideas. Never fill scenes with it.
+    if set(normalized_title.split()) & {
+        "via", "street", "road", "avenue", "avenida", "rua",
+        "piazza", "plaza", "square", "strada", "viale",
+    }:
         return None
     if Path(title).suffix.lower() not in {".jpg", ".jpeg", ".png"}:
         return None
