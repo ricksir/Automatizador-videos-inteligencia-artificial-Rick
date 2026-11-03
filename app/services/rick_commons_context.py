@@ -65,12 +65,17 @@ def find_contextual_commons_stills(
         raise ValueError("Categoria de fotografia contextual inválida.")
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
+    failed_searches = 0
     for term in _SCENE_TOPICS[kind]:
         if len(results) >= max_results:
             break
-        pages, _ = _commons_pages({
-            **_BASE_PARAMS, "gsrsearch": f"intitle:{term}",
-        })
+        try:
+            pages, _ = _commons_pages({
+                **_BASE_PARAMS, "gsrsearch": f"intitle:{term}",
+            })
+        except (RuntimeError, ValueError, OSError):
+            failed_searches += 1
+            continue
         if not isinstance(pages, list):
             continue
         for page in pages:
@@ -97,4 +102,6 @@ def find_contextual_commons_stills(
             })
             if len(results) >= max_results:
                 break
+    if not results and failed_searches == len(_SCENE_TOPICS[kind]):
+        raise RuntimeError("Todas as pesquisas contextuais do Commons falharam.")
     return results
