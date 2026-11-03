@@ -326,7 +326,14 @@ def render_editorial_panel(
                 "Consulta específica": row["intent"]["query"][:90],
                 "Proposta": row["primary"] or "SEM CANDIDATO",
                 "Score metadados": row["metadata_score"],
-                "Estado": row["status"],
+                "Candidatos compatíveis": row.get("eligible_candidates", 0),
+                "Situação": (
+                    "Proposta para conferir"
+                    if row["primary"] else
+                    "Limite de reutilização" if row.get("blocker")
+                    == "limite_de_repeticao_atingido"
+                    else "Sem mídia com metadados suficientes"
+                ),
             }
             for row in precure["scenes"]
         ], hide_index=True, use_container_width=True)
@@ -336,6 +343,24 @@ def render_editorial_panel(
                 f"Última busca: {discovery['imported_count']} arquivos adicionados "
                 "com registro de origem. Conteúdo e licença seguem sem homologação."
             )
+            st.caption(
+                "Consultas ao banco: "
+                + str(discovery.get("search_requests", "não registrado"))
+                + " • arquivos de fontes diferentes buscados: "
+                + str(len(discovery.get("searched_intents", [])))
+                + " • materiais importados: "
+                + str(discovery.get("imported_count", 0))
+                + ". O número de arquivos existentes NÃO equivale ao número "
+                "de cenas semanticamente atendidas."
+            )
+            missed = discovery.get("skipped_candidates")
+            if isinstance(missed, dict) and any(missed.values()):
+                st.caption(
+                    "Candidatos descartados na busca: "
+                    f"{missed.get('duplicate', 0)} repetidos, "
+                    f"{missed.get('invalid_source', 0)} sem origem/URL elegível, "
+                    f"{missed.get('download_failed', 0)} com falha no download."
+                )
             if discovery.get("issues"):
                 st.warning("Avisos da busca: " + "; ".join(discovery["issues"][:5]))
 
