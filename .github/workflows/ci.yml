@@ -195,3 +195,13 @@ jobs:
           test/services/test_rick_review_render.py
           test/services/test_rick_scene_timeline.py
           test/services/test_rick_auto_commons.py
+
+      - name: Diagnose Wikimedia Commons search (non-blocking, no downloads)
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: >-
+          uv run --no-sync python -X utf8 -c
+          "from app.services.rick_auto_commons import find_commons_stills;
+          photos = find_commons_stills('Gramsci', max_results=5);
+          print('Commons images accepted:', len(photos));
+          [print(p['title'], p['license'], p['source_page']) for p in photos]"
