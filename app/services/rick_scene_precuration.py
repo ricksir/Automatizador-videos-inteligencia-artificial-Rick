@@ -75,6 +75,50 @@ def scene_intent(scene: Mapping, subject: str = "") -> dict:
     }
 
 
+
+def scene_search_context(
+    scenes: Sequence[Mapping], index: int, subject: str,
+) -> dict:
+    """Infer a search query for a short fragment using adjacent narration.
+
+    Legacy previews often split a sentence into multiple 2-second fragments:
+    'a sociedade e como' by itself cannot yield a reliable query. Only use
+    neighboring text for *discovery*; never rewrite scene boundaries or assert
+    precise audio alignment.
+    """
+    if (
+        not isinstance(scenes, (list, tuple))
+        or type(index) is not int or not 0 <= index < len(scenes)
+        or any(not isinstance(scene, Mapping) for scene in scenes[:60])
+    ):
+        raise ValueError("Cenas de contexto inválidas.")
+    base = scene_intent(scenes[index], subject)
+    if base["kind"] != "general":
+        return base
+    parts = [str(scenes[index].get("text") or "").strip()]
+    for offset in range(index + 1, min(len(scenes), index + 3)):
+        if parts[-1].rstrip().endswith((".", "!", "?")):
+            break
+        parts.append(str(scenes[offset].get("text") or "").strip())
+    window = " ".join(parts)
+    contextual = scene_intent({"text": window, "search_term": ""}, subject)
+    if contextual["kind"] == "general" and index > 0:
+        previous = str(scenes[index - 1].get("text") or "").strip()
+        if previous and not previous.endswith((".", "!", "?")):
+            contextual = scene_intent(
+                {"text": previous + " " + window, "search_term": ""},
+                subject,
+            )
+    if contextual["kind"] in {"general", "historical_person"}:
+        return base
+    return {
+        **contextual,
+        "context_derived": True,
+        "text": base["text"],
+        "alignment": base["alignment"],
+    }
+
+
 def _score(scene: Mapping, intent: Mapping, name: str, meta: Mapping) -> dict:
     text_tokens = _words(scene.get("text"))
     term = _norm(meta.get("search_term"))
