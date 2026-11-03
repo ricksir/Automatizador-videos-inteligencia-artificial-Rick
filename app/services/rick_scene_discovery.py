@@ -9,6 +9,7 @@ explicitly reviewable and publishing stays disabled.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -124,7 +125,7 @@ def discover_scene_media(
             issues.append(f"Commons indisponível: {type(exc).__name__}")
             photos = []
         for asset in photos:
-            key = f"commons:{asset['source_page']}"
+            key = "commons:" + sha256(asset["source_page"].encode("utf-8")).hexdigest()[:40]
             if key in existing:
                 continue
             try:
