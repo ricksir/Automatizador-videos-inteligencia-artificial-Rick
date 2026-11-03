@@ -201,7 +201,10 @@ jobs:
         continue-on-error: true
         run: >-
           uv run --no-sync python -X utf8 -c
-          "from app.services.rick_auto_commons import find_commons_stills;
+          "from app.services.rick_auto_commons import find_commons_stills, _commons_pages;
+          pages, tokens = _commons_pages({'action':'query', 'titles':'File:Gramsci.png', 'prop':'imageinfo', 'iiprop':'url|size|mime|extmetadata', 'iiurlwidth':'900', 'format':'json', 'formatversion':'2'});
+          print('Exact file pages:', len(pages), 'tokens', tokens);
+          [print('FILE', p.get('title'), p.get('ns'), p.get('missing'), [(i.get('mime'), i.get('thumburl'), i.get('descriptionurl'), {k:v.get('value') for k,v in i.get('extmetadata',{}).items() if k in ('LicenseShortName','LicenseUrl','Copyrighted','NonFree','Restrictions')}) for i in p.get('imageinfo',[])]) for p in pages];
           photos = find_commons_stills('Gramsci', max_results=5);
           print('Commons images accepted:', len(photos));
           [print(p['title'], p['license'], p['source_page']) for p in photos]"
