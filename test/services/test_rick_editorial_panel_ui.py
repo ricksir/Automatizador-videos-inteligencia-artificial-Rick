@@ -157,10 +157,11 @@ def test_precuration_preserves_saved_approval_and_other_picker(monkeypatch):
     assert session_state[key] is None
     session_state[other] = None
     panel._hydrate_precuration_choice(
-        "task-a", 2, "portrait.mp4", [None, "portrait.mp4"],
+        "task-a", 2, "portrait.mp4",
+        [None, "portrait.mp4", "approved.mp4"],
         saved_approved="approved.mp4",
     )
-    assert session_state[key] is None
+    assert session_state[key] == "approved.mp4"
 
 
 def test_user_changing_picker_blocks_future_automatic_overrides(monkeypatch):
