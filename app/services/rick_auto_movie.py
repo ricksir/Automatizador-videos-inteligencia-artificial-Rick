@@ -180,6 +180,9 @@ def export_auto_commons_video(
     output = directory / f"rick-auto-{run_id}-final.mp4"
     report_path = directory / f"rick-auto-{run_id}-report.json"
     used: list[str] = []
+    params = _render_params(
+        manifest, include_subtitles=subtitle is not None, clip_seconds=max_clip
+    )
     video.combine_videos(
         combined_video_path=str(combined),
         video_paths=[paths[item["local_file"]] for item in imported],
@@ -188,7 +191,7 @@ def export_auto_commons_video(
         video_concat_mode=VideoConcatMode.sequential,
         video_transition_mode=None,
         max_clip_duration=max_clip,
-        video_fit_mode=VideoFitMode(raw.get("video_fit_mode", "cover")),
+        video_fit_mode=params.video_fit_mode,
         clip_speed=1.0,
         threads=2, scene_timeline=timeline,
         used_video_paths=used,
@@ -197,9 +200,7 @@ def export_auto_commons_video(
         video_path=str(combined), audio_path=str(audio),
         subtitle_path=str(subtitle) if subtitle else "",
         output_file=str(output),
-        params=_render_params(
-            manifest, include_subtitles=subtitle is not None, clip_seconds=max_clip
-        ),
+        params=params,
         bgm_file_override="",
     )
     if not output.is_file() or output.stat().st_size == 0:
@@ -212,6 +213,15 @@ def export_auto_commons_video(
         "output_filename": output.name,
         "scene_count": len(scenes),
         "image_count": len(imported),
+        "used_source_basenames": [Path(path).name for path in used],
+        "scene_assignments": [
+            {
+                "scene_number": index,
+                "assigned_file": scene["assigned_material_file"],
+                "text": str(scene.get("text") or "")[:160],
+            }
+            for index, scene in enumerate(assigned, 1)
+        ],
         "subject_metadata_anchor": historical_person,
         "human_reviewed": False,
         "license_metadata_screened": True,
