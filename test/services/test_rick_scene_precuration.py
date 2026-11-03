@@ -116,7 +116,7 @@ def test_best_available_is_deterministic_and_uses_alternatives():
         "O filósofo Gramsci", [scene] * 3, candidates, list(candidates),
     )
     assigned = [s["primary"] for s in report["scenes"]]
-    assert assigned == ["a.mp4", "b.mp4", "a.mp4"]
+    assert assigned == ["a.mp4", "b.mp4", "c.mp4"]
     assert report["scenes"][0]["alternatives"]
 
 
