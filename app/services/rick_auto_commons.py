@@ -44,13 +44,16 @@ def _metadata_value(values: dict, key: str) -> str:
 def _trusted_url(url: str, *, media: bool) -> bool:
     if not isinstance(url, str) or len(url) > 1800:
         return False
-    parsed = urlsplit(url)
-    if (parsed.scheme != "https" or parsed.username or parsed.password
-            or parsed.port is not None or parsed.query or parsed.fragment):
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or parsed.username or parsed.password
+                or parsed.port is not None or parsed.query or parsed.fragment):
+            return False
+    except ValueError:
         return False
     if media:
-        return parsed.hostname == "upload.wikimedia.org" and parsed.path.startswith(
-            "/wikipedia/commons/"
+        return parsed.hostname in {"upload.wikimedia.org", "thumb.wikimedia.org"} and (
+            parsed.path.startswith("/wikipedia/commons/")
         )
     return parsed.hostname == "commons.wikimedia.org" and parsed.path.startswith("/wiki/File:")
 
