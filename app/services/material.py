@@ -392,6 +392,59 @@ def _filter_materials_by_aspect(
     return filtered_items
 
 
+
+def _editorial_rendition_alternatives(
+    choices: list[dict],
+    selected_url: str,
+    video_aspect: VideoAspect,
+    *,
+    url_key: str,
+    size_key: str,
+) -> list[dict]:
+    """Expose smaller provider renditions for *opt-in* Rick editorial import.
+
+    The ordinary MoneyPrinterTurbo renderer still uses its original primary
+    rendition. Metadata size is advisory; the Rick downloader enforces a hard
+    64 MiB bound even when a provider omits or misreports file size.
+    """
+    variants = []
+    seen = {selected_url}
+    for rendition in choices[:20]:
+        if not isinstance(rendition, dict):
+            continue
+        url = rendition.get(url_key)
+        if not isinstance(url, str) or not url or url in seen:
+            continue
+        try:
+            width = int(rendition["width"])
+            height = int(rendition["height"])
+        except (KeyError, OverflowError, TypeError, ValueError):
+            continue
+        if (
+            width < 360 or height < 640
+            or not _matches_video_aspect(width, height, video_aspect)
+        ):
+            continue
+        size = rendition.get(size_key)
+        try:
+            byte_count = int(size) if size is not None else None
+        except (OverflowError, TypeError, ValueError):
+            byte_count = None
+        if byte_count is not None and (
+            byte_count <= 0 or byte_count > 64 * 1024 * 1024
+        ):
+            continue
+        seen.add(url)
+        variants.append({
+            "url": url,
+            "width": width,
+            "height": height,
+            "size_bytes": byte_count,
+        })
+    variants.sort(key=lambda v: (-(v["width"] * v["height"]), v["url"]))
+    return variants[:4]
+
+
 def search_videos_pexels(
     search_term: str,
     minimum_duration: int,
@@ -483,6 +536,12 @@ def search_videos_pexels(
                         "width": w,
                         "height": h,
                     },
+                    "editorial_rendition_alternatives": (
+                        _editorial_rendition_alternatives(
+                            video_files, video_url, aspect,
+                            url_key="link", size_key="file_size",
+                        )
+                    ),
                 }
                 video_items.append(item)
         return video_items
@@ -623,6 +682,12 @@ def search_videos_pixabay(
                             "width": w,
                             "height": video.get("height"),
                         },
+                        "editorial_rendition_alternatives": (
+                            _editorial_rendition_alternatives(
+                                list(video_files.values()), video_url, aspect,
+                                url_key="url", size_key="size",
+                            )
+                        ),
                     }
                     video_items.append(item)
                     break
