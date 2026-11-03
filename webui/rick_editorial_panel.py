@@ -1,7 +1,7 @@
-"""Optional Streamlit human-review panel for previously generated Rick scenes.
+"""Streamlit scene review and opt-in automatic Commons-based video export.
 
-Never starts generation, download, publication or paid API calls.
-No user-entered paths are opened; clips come from recorded task material paths.
+Manual approvals remain explicit. The separate automatic workflow uses
+machine-screened Commons metadata and never claims human review or publishes.
 """
 from __future__ import annotations
 
@@ -205,6 +205,64 @@ def render_editorial_panel(
             }
             for row in curation["scenes"]
         ], hide_index=True, use_container_width=True)
+
+    with st.expander("Rick — Montagem automática com imagens históricas (experimental)", expanded=True):
+        st.caption(
+            "Uma ação: busca imagens no Wikimedia Commons, filtra metadados "
+            "indicando CC0/domínio público, converte para MP4, distribui pelas "
+            "cenas e exporta um novo vídeo local com o áudio existente. "
+            "Não utiliza API paga nem substitui o vídeo original."
+        )
+        st.warning(
+            "A seleção é baseada no nome dos arquivos e nos metadados de licença. "
+            "NÃO verifica visualmente a identidade, autenticidade ou todos os "
+            "direitos de uso; grava fontes e ressalvas em relatório. "
+            "Não publica o resultado nem registra aprovação humana."
+        )
+        if not curation["subject_anchor"]:
+            st.info(
+                "Esta primeira automação é destinada a tarefas sobre uma "
+                "pessoa histórica claramente identificada no assunto."
+            )
+        if st.button(
+            "Buscar imagens e montar MP4 automaticamente",
+            disabled=not bool(curation["subject_anchor"]),
+            key=f"rick_auto_commons_start_{selected_id}",
+            type="primary",
+        ):
+            from app.services.rick_auto_movie import export_auto_commons_video
+
+            with st.spinner(
+                "Pesquisando fontes históricas, convertendo imagens e renderizando..."
+            ):
+                try:
+                    automatic = export_auto_commons_video(
+                        tasks_root, selected_id,
+                        cache_dir=utils.storage_dir("cache_videos"),
+                        state_materials=media_paths,
+                        subject=str(by_id[selected_id].get("subject") or ""),
+                    )
+                except (ValueError, OSError, RuntimeError) as exc:
+                    st.error(f"Montagem automática bloqueada: {exc}")
+                else:
+                    st.session_state[f"rick_auto_commons_last_{selected_id}"] = automatic
+                    st.success(
+                        f"Novo MP4 gerado com {automatic['image_count']} "
+                        f"imagens para {automatic['scene_count']} cenas."
+                    )
+        completed = st.session_state.get(f"rick_auto_commons_last_{selected_id}")
+        if isinstance(completed, dict):
+            from pathlib import Path
+
+            output_file = completed.get("output")
+            if (isinstance(output_file, str)
+                    and Path(output_file).is_file()):
+                st.video(output_file)
+                st.code(output_file)
+                st.caption(
+                    "Relatório de fontes/licenças informadas: "
+                    + str(completed.get("report") or "")
+                )
 
     excluded = excluded_editorial_materials(tasks_root, selected_id)
     if excluded:
