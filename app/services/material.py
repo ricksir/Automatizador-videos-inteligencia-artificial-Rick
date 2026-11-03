@@ -274,6 +274,52 @@ def _is_cloudflare_challenge(response: requests.Response) -> bool:
     return "just a moment" in body or "/cdn-cgi/challenge-platform/" in body
 
 
+
+def _stock_search_results(provider: str, response: Any, key: str) -> list | None:
+    """Classify stock provider HTTP/JSON errors without logging credentials/body.
+
+    Adapted from upstream MoneyPrinterTurbo commit 4644b56 (2026-11-02).
+    Public search methods keep their original [] contract on provider failure.
+    """
+    try:
+        status = int(getattr(response, "status_code", 200))
+    except (TypeError, ValueError):
+        status = 0
+    headers = getattr(response, "headers", {}) or {}
+    content_type = str(headers.get("content-type", "unknown"))
+    if status == 401:
+        logger.error(
+            f"{provider} rejected the API key: status=401. "
+            f"Check {provider}_api_keys in config.toml."
+        )
+        return None
+    if status == 429:
+        retry = str(headers.get("retry-after") or "unknown")
+        # Retry-After should be numeric or an HTTP date. Do not echo untrusted
+        # response headers into logs unless reduced to a safe numeric value.
+        retry = retry if retry.isdecimal() and len(retry) <= 6 else "unknown"
+        logger.error(f"{provider} API rate limit exceeded: status=429, retry_after={retry}")
+        return None
+    if status >= 400 or status <= 0:
+        logger.error(
+            f"{provider} search request failed: status={status}, "
+            f"content_type={content_type[:100]!r}"
+        )
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        logger.error(
+            f"{provider} returned a non-JSON search response: status={status}, "
+            f"content_type={content_type[:100]!r}"
+        )
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
+        logger.error(f"{provider} search returned an unsupported JSON schema")
+        return None
+    return payload[key]
+
+
 def _matches_video_aspect(
     width: Any,
     height: Any,
@@ -367,14 +413,10 @@ def search_videos_pexels(
             verify=_get_tls_verify(),
             timeout=(30, 60),
         )
-        response = r.json()
+        videos = _stock_search_results("pexels", r, "videos")
+        if videos is None:
+            return []
         video_items = []
-        if not isinstance(response, dict) or not isinstance(
-            response.get("videos"), list
-        ):
-            logger.error("pexels video search returned an unsupported response")
-            return video_items
-        videos = response["videos"]
         # loop through each video in the result
         for v in videos:
             if not isinstance(v, dict):
@@ -638,16 +680,12 @@ def search_videos_coverr(
             verify=_get_tls_verify(),
             timeout=(30, 60),
         )
-        response = r.json()
+        hits = _stock_search_results("coverr", r, "hits")
+        if hits is None:
+            return []
         video_items: List[MaterialInfo] = []
 
-        if not isinstance(response, dict) or not isinstance(
-            response.get("hits"), list
-        ):
-            logger.error("coverr video search returned an unsupported response")
-            return video_items
-
-        for v in response["hits"]:
+        for v in hits:
             if not isinstance(v, dict):
                 continue
             # duration 在不同响应里可能是 number(11.625) 或 string("10.500000")
