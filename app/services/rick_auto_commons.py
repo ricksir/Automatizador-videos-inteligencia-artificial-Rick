@@ -155,7 +155,7 @@ def find_commons_stills(subject: str, *, max_results: int = 6) -> list[dict]:
             or not 1 <= max_results <= 10):
         raise ValueError("Assunto histórico inválido para pesquisa automática.")
     name = " ".join(subject.split())
-    if not re.fullmatch(r"[\\wÀ-ÿ .'-]{3,80}", name):
+    if not re.fullmatch(r"[\wÀ-ÿ .'-]{3,80}", name):
         raise ValueError("Caracteres inválidos no assunto histórico.")
     shared = {
         "action": "query", "prop": "imageinfo",
