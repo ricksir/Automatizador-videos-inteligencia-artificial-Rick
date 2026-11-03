@@ -74,12 +74,15 @@ def _hydrate_precuration_choice(
     other_key = f"rick_editorial_other_v1_{suffix}"
     manual_key = f"rick_editorial_manually_selected_v1_{suffix}"
     state = st.session_state
-    if (
-        not isinstance(proposal, str) or proposal not in choices
-        or saved_approved is not None
-        or state.get(manual_key) is True
-        or state.get(other_key) is not None
-    ):
+    if state.get(manual_key) is True or state.get(other_key) is not None:
+        return
+    # An existing human approval takes precedence over the new proposal.
+    # Restore its selected clip if the old widget session value is empty.
+    if saved_approved is not None:
+        if saved_approved in choices and state.get(key) is None:
+            state[key] = saved_approved
+        return
+    if not isinstance(proposal, str) or proposal not in choices:
         return
     # Nonempty existing values are either a reviewer choice or a prior
     # proposal. Preserve them. A stale None from the old review UI is
