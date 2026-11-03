@@ -427,8 +427,9 @@ def test_editorial_ui_requires_explicit_video_choice_when_unverified():
     )
     # Metadata ranking does not preselect a candidate.
     assert "ranked = order_review_materials(" in text
+    assert "groups = classify_review_materials(" in text
     assert "review_choices = [None, *ranked]" in text
-    assert "index=review_choices.index(selected_default)" in text
+    assert "index=review_choices.index(suggested_default)" in text
     assert 'if old.get("editorial_review") == "approved_by_human"' in text
     assert "if chosen is not None:" in text
     # Only a previously *saved human approval* can prepopulate a clip.
@@ -441,10 +442,10 @@ def test_editorial_ui_requires_explicit_video_choice_when_unverified():
     assert "selected_default = scene.get(\"assigned_material_file\")" not in text
     # Per-task/per-scene v4 key avoids reusing another scene's Streamlit selection.
     assert 'key=f"rick_editorial_material_v4_{selected_id}_{idx}"' in text
-    assert "on_change=_clear_scene_evidence" in text
+    assert "on_change=_select_scene_material" in text
     assert "args=(selected_id, idx)" in text
     # Clip changes clear evidence before a fresh saved approval can be issued.
-    assert text.index("chosen = st.selectbox(") < text.index("with st.form(")
+    assert text.index("suggested_choice = st.selectbox(") < text.index("with st.form(")
     assert "chosen is None or not note.strip()" in text
     assert "or not content_checked or not rights_checked" in text
 
