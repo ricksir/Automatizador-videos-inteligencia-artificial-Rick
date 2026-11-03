@@ -124,3 +124,35 @@ jobs:
           test/services/test_webui_headless_task_actions.py
           test/services/test_cache_manager.py
           test/services/test_material_cache.py
+
+  rick-native:
+    name: Rick native two-scene MP4 export
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RICK_RUN_NATIVE_RENDER_TEST: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install project dependencies
+        run: uv sync --frozen --python 3.11
+
+      - name: Install FFmpeg and FFprobe
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Render and inspect two synthetic Rick scenes
+        run: >-
+          uv run --no-sync python -X utf8 -m pytest -q
+          test/services/test_rick_review_render_native.py
