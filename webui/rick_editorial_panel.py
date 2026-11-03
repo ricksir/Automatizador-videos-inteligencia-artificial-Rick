@@ -507,7 +507,10 @@ def render_editorial_panel(
             ranked = order_review_materials(
                 scene, workspace["source_metadata"], groups["suggested"],
             )
-            ranked = list(dict.fromkeys([*proposed_names, *ranked]))
+            ranked = list(dict.fromkeys([
+                *([selected_default] if selected_default in paths else []),
+                *proposed_names, *ranked,
+            ]))
             groups["other"] = [
                 name for name in groups["other"] if name not in ranked
             ]
