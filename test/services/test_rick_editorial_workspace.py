@@ -1,8 +1,12 @@
 """Offline tests for the local editorial workspace; no API keys, network or FFmpeg."""
 import json
+import shutil
 from pathlib import Path
 
 import pytest
+
+from app.services.rick_editorial_assets import exclude_editorial_material
+from app.services.rick_visual_curation import retained_human_decisions
 
 from app.services.rick_editorial_workspace import (
     available_material_paths,
@@ -88,6 +92,50 @@ def test_local_editorial_review_stays_in_separate_artifact(tmp_path):
     document = json.loads((folder / "rick_editorial_review.json").read_text(encoding="utf-8"))
     assert document["review"]["status"] == "ready_human_reviewed"
     assert load_review_workspace(root, "task-123", materials)["saved_review"]["human_approved_count"] == 2
+
+
+def test_saved_scene_persists_when_reviewing_next_scene(tmp_path):
+    root, folder, materials = create_task(tmp_path)
+    first_ws = load_review_workspace(root, "task-123", materials)
+    first_report = save_editorial_workspace_review(
+        root, "task-123", first_ws["preview_sha256"], materials, approvals()[:1]
+    )
+    assert first_report["human_approved_count"] == 1
+    second_ws = load_review_workspace(root, "task-123", materials)
+    retained = retained_human_decisions(
+        second_ws["saved_review"]["scenes"], exclude_scene=2
+    )
+    second_report = save_editorial_workspace_review(
+        root, "task-123", second_ws["preview_sha256"], materials,
+        retained + approvals()[1:],
+    )
+    assert second_report["status"] == "ready_human_reviewed"
+    reloaded = load_review_workspace(root, "task-123", materials)["saved_review"]
+    assert [scene["assigned_material_file"] for scene in reloaded["scenes"]] == [
+        "portrait.mp4", "election.mp4",
+    ]
+
+
+def test_review_and_exclusions_are_isolated_across_tasks(tmp_path):
+    root, folder, materials_a = create_task(tmp_path)
+    other_folder = root / "task-other"
+    shutil.copytree(folder, other_folder)
+    materials_b = [str(other_folder / Path(name).name) for name in materials_a]
+    a = load_review_workspace(root, "task-123", materials_a)
+    b = load_review_workspace(root, "task-other", materials_b)
+    save_editorial_workspace_review(
+        root, "task-123", a["preview_sha256"], materials_a, approvals()
+    )
+    assert load_review_workspace(
+        root, "task-other", materials_b
+    )["saved_review"] is None
+    exclude_editorial_material(root, "task-123", "portrait.mp4")
+    assert "portrait.mp4" not in load_review_workspace(
+        root, "task-123", materials_a
+    )["paths"]
+    clean_other = load_review_workspace(root, "task-other", materials_b)
+    assert "portrait.mp4" in clean_other["paths"]
+    assert clean_other["saved_review"] is None
 
 
 def test_partial_review_saved_only_as_blocked_draft(tmp_path):
