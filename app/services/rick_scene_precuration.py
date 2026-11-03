@@ -127,6 +127,18 @@ def _score(scene: Mapping, intent: Mapping, name: str, meta: Mapping) -> dict:
         strong = any(clue in label for clue in _words(intent["query"]))
         if not strong:
             score = min(score, 25)
+    # Prefer motion footage for events/actions and archival stills when the
+    # scene explicitly names a historical person. This is a weak preference,
+    # never evidence that pixels match the narration.
+    provider = _norm(meta.get("provider"))
+    media_kind = _norm(meta.get("media_kind"))
+    is_video = media_kind == "video" or provider in {"pexels", "pixabay", "coverr"}
+    if intent_kind in ("elections", "institutions", "demonstrations") and is_video:
+        score += 8
+        evidence.append("video_preferido_para_acao")
+    if intent_kind == "historical_person" and media_kind == "image converted locally":
+        score += 5
+        evidence.append("foto_historica_para_pessoa_nomeada")
     # A declared provider or task-local file is a traceable starting point,
     # not legal certification of rights.
     if meta.get("provider") and meta.get("source_page"):
