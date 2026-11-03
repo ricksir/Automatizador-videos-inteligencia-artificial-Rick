@@ -40,6 +40,9 @@ def test_commons_license_and_filename_filter_fail_closed():
     assert good["identity_verified"] is False
     assert commons._eligible_image(_candidate(title="File:Waterfall.jpg"), "Gramsci") is None
     assert commons._eligible_image(
+        _candidate(title="File:Via Gramsci.jpg"), "Gramsci"
+    ) is None
+    assert commons._eligible_image(
         _candidate(license_name="CC BY-SA 4.0"), "Gramsci"
     ) is None
     assert commons._eligible_image(
