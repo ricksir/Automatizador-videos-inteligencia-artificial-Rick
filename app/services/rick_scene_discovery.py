@@ -248,6 +248,7 @@ def discover_scene_media(
     max_clips: int = 8,
     priority_scene_numbers: Sequence[int] | None = None,
     search_variants: bool = False,
+    search_context_photos: bool = False,
 ) -> dict:
     """Import distinct candidates; never reimport the same provider asset."""
     if (
@@ -256,6 +257,7 @@ def discover_scene_media(
         or type(max_stills) is not int or not 0 <= max_stills <= 10
         or type(max_clips) is not int or not 0 <= max_clips <= 12
         or type(search_variants) is not bool
+        or type(search_context_photos) is not bool
     ):
         raise ValueError("Solicitação de descoberta editorial inválida.")
     if priority_scene_numbers is not None and (
@@ -279,9 +281,12 @@ def discover_scene_media(
     diagnostics: list[dict] = []
 
     person = person_anchor(subject)
-    if person and max_stills:
+    # In the contextual mode reserve most of the photo budget for
+    # unresolved scene topics, rather than filling it with portraits.
+    portrait_limit = min(max_stills, 2) if search_context_photos else max_stills
+    if person and portrait_limit:
         try:
-            photos = find_commons_stills(person, max_results=max_stills)
+            photos = find_commons_stills(person, max_results=portrait_limit)
         except (RuntimeError, ValueError) as exc:
             issues.append(f"Commons indisponível: {type(exc).__name__}")
             photos = []
@@ -458,6 +463,37 @@ def discover_scene_media(
                         })
                         imported_stock += 1
                         imported_for_scene += 1
+    contextual_report = None
+    if search_context_photos and priority and max_stills:
+        from app.services.rick_scene_photo_fallback import discover_context_photos
+
+        used_photo_slots = sum(
+            record.get("media_kind") == "historical_still"
+            for record in imported
+        )
+        contextual_report = discover_context_photos(
+            tasks_root, task_id,
+            subject=subject, scenes=scenes,
+            priority_scene_numbers=priority,
+            existing_asset_ids=existing,
+            max_imports=min(6, max_stills - used_photo_slots),
+            max_searches=6,
+        )
+        imported.extend(contextual_report["imported"])
+        for error in contextual_report.get("errors", []):
+            diagnostics.append({
+                "scene": error["scene"],
+                "intent": error["intent"],
+                "provider": "commons",
+                "stage": error["stage"],
+                "code": error["code"],
+                "exception_type": "CommonsError",
+                "retryable": False,
+            })
+            issues.append(
+                f"Commons {error['intent']}: "
+                f"etapa={error['stage']}, causa={error['code']}"
+            )
     return {
         "imported_count": len(imported),
         "imported": imported,
@@ -466,6 +502,7 @@ def discover_scene_media(
         "skipped_candidates": skipped,
         "smaller_renditions_used": lower_rendition_selected,
         "oversized_primaries_recovered": oversized_primary_recovered,
+        "context_photos": contextual_report,
         "diagnostics": diagnostics[:40],
         "failure_count": len(diagnostics),
         "priority_scene_numbers": priority,
