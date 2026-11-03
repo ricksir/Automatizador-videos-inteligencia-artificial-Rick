@@ -120,20 +120,8 @@ def _eligible_image(page: dict, subject: str) -> dict | None:
     }
 
 
-def find_commons_stills(subject: str, *, max_results: int = 6) -> list[dict]:
-    """Return a bounded list; do not accept URLs from the caller."""
-    if (not isinstance(subject, str) or not 3 <= len(subject.strip()) <= 80
-            or not 1 <= max_results <= 10):
-        raise ValueError("Assunto histórico inválido para pesquisa automática.")
-    name = " ".join(subject.split())
-    if not re.fullmatch(r"[\wÀ-ÿ .'-]{3,80}", name):
-        raise ValueError("Caracteres inválidos no assunto histórico.")
-    params = {
-        "action": "query", "generator": "search", "gsrsearch": name,
-        "gsrnamespace": "6", "gsrlimit": "24", "prop": "imageinfo",
-        "iiprop": "url|size|mime|extmetadata", "iiurlwidth": "900",
-        "format": "json", "formatversion": "2",
-    }
+def _commons_pages(params: dict) -> tuple[list[dict], dict]:
+    """Read one bounded Commons API page, preserving pagination tokens."""
     try:
         response = requests.get(
             _API, params=params, timeout=(6, 20), allow_redirects=False,
@@ -145,19 +133,79 @@ def find_commons_stills(subject: str, *, max_results: int = 6) -> list[dict]:
         data = response.json()
     except (requests.RequestException, ValueError) as exc:
         raise RuntimeError("A pesquisa no Wikimedia Commons falhou.") from exc
-    pages = data.get("query", {}).get("pages", []) if isinstance(data, dict) else []
-    if not isinstance(pages, list):
-        return []
-    found = []
-    seen_urls = set()
-    for page in sorted(pages[:24], key=lambda p: p.get("index", 1000) if isinstance(p, dict) else 1000):
-        item = _eligible_image(page, name)
-        if item and item["source_page"] not in seen_urls:
-            seen_urls.add(item["source_page"])
-            found.append(item)
-            if len(found) >= max_results:
-                break
-    return found
+    if not isinstance(data, dict) or "error" in data:
+        raise RuntimeError("O Wikimedia Commons não aceitou a pesquisa.")
+    query = data.get("query")
+    pages = query.get("pages", []) if isinstance(query, dict) else []
+    continuation = data.get("continue")
+    return (pages if isinstance(pages, list) else []), (
+        continuation if isinstance(continuation, dict) else {}
+    )
+
+
+def find_commons_stills(subject: str, *, max_results: int = 6) -> list[dict]:
+    """Search up to 100 titles, then resolve explicit file-title fallbacks.
+
+    Commons relevance search is not exhaustive: historical portraits such as
+    File:Gramsci.png may rank after modern streets and monuments. Querying
+    known *title patterns* via the API is not hardcoding image URLs, bypassing
+    license filters or accepting untrusted media hosts.
+    """
+    if (not isinstance(subject, str) or not 3 <= len(subject.strip()) <= 80
+            or not 1 <= max_results <= 10):
+        raise ValueError("Assunto histórico inválido para pesquisa automática.")
+    name = " ".join(subject.split())
+    if not re.fullmatch(r"[\\wÀ-ÿ .'-]{3,80}", name):
+        raise ValueError("Caracteres inválidos no assunto histórico.")
+    shared = {
+        "action": "query", "prop": "imageinfo",
+        "iiprop": "url|size|mime|extmetadata", "iiurlwidth": "900",
+        "format": "json", "formatversion": "2",
+    }
+    results: list[dict] = []
+    known: set[str] = set()
+
+    def add(pages: list[dict]) -> None:
+        for page in pages:
+            item = _eligible_image(page, name)
+            if item and item["source_page"] not in known:
+                known.add(item["source_page"])
+                results.append(item)
+                if len(results) >= max_results:
+                    return
+
+    # Two pages of 50 file results; continuation may be absent.
+    args = {**shared, "generator": "search", "gsrsearch": name,
+            "gsrnamespace": "6", "gsrlimit": "50"}
+    for _ in range(2):
+        pages, continuation = _commons_pages(args)
+        add(sorted(pages, key=lambda page: (
+            page.get("index", 1000) if isinstance(page, dict) else 1000
+        )))
+        if len(results) >= max_results or not continuation:
+            break
+        # Only pagination tokens from the Wikimedia API may be carried forward.
+        args = {**args, **{
+            key: value for key, value in continuation.items()
+            if key in {"continue", "gsroffset", "gsrcontinue"}
+            and isinstance(value, (str, int))
+        }}
+
+    # Exact-title discovery: catches archival portraits that do not appear
+    # in search's first pages, e.g. "File:Gramsci.png". These pass exactly
+    # the SAME public-domain/CC0, MIME and URL checks.
+    if len(results) < max_results:
+        last_name = name.split()[-1]
+        stems = list(dict.fromkeys((name, last_name)))
+        titles = [
+            f"File:{stem}.{suffix}"
+            for stem in stems for suffix in ("png", "jpg", "jpeg")
+        ]
+        pages, _ = _commons_pages({
+            **shared, "titles": "|".join(titles),
+        })
+        add(pages)
+    return results
 
 
 def download_commons_still(asset: dict) -> tuple[str, bytes]:
