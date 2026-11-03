@@ -87,6 +87,7 @@ def review_scene_frames(
     model: str,
     consent: bool = False,
     max_scenes: int = 6,
+    first_scene: int = 1,
 ) -> dict:
     """Inspect a maximum of 6 scene proposals through Gemini, opt-in only.
 
@@ -102,6 +103,7 @@ def review_scene_frames(
         or not isinstance(api_key, str) or not api_key.strip()
         or not isinstance(model, str) or not model.strip() or len(model) > 100
         or type(max_scenes) is not int or not 1 <= max_scenes <= _MAX_SCENES
+        or type(first_scene) is not int or not 1 <= first_scene <= 60
     ):
         raise ValueError("semantic_review_configuration_invalid")
 
@@ -117,7 +119,7 @@ def review_scene_frames(
         name = scene.get("primary")
         snippet = scene.get("text")
         if (
-            type(number) is not int or number < 1 or number > 60
+            type(number) is not int or number < first_scene or number > 60
             or not isinstance(name, str) or name not in paths
             or not isinstance(snippet, str)
         ):
