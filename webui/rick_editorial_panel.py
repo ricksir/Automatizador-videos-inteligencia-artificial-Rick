@@ -375,6 +375,14 @@ def render_editorial_panel(
                     f"{missed.get('invalid_source', 0)} sem origem/URL elegível, "
                     f"{missed.get('download_failed', 0)} com falha no download/importação."
                 )
+            recovered = discovery.get("oversized_primaries_recovered", 0)
+            smaller = discovery.get("smaller_renditions_used", 0)
+            if smaller:
+                st.info(
+                    f"{smaller} mídia(s) recuperada(s) em resolução menor, "
+                    f"incluindo {recovered} originalmente acima de 64 MB. "
+                    "O limite de tamanho continua ativo."
+                )
             diagnostics = discovery.get("diagnostics", [])
             if diagnostics:
                 st.caption(
