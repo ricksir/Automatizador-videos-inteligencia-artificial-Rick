@@ -209,54 +209,94 @@ def build_precuration(
             or type(max_uses) is not int or not 1 <= max_uses <= 3
             or type(min_score) is not int or not 1 <= min_score <= 95):
         raise ValueError("Dados de pré-curadoria inválidos.")
-    names = sorted({n for n in available_names if isinstance(n, str) and n in source_metadata})
-    used: Counter[str] = Counter()
-    result = []
-    for i, scene in enumerate(scenes, 1):
+    names = sorted({
+        n for n in available_names
+        if isinstance(n, str) and isinstance(source_metadata.get(n), Mapping)
+    })
+    # Calculate eligibility for ALL scenes first. The older left-to-right
+    # greedy choice consumed scarce files early and stranded later scenes even
+    # when a globally valid arrangement existed.
+    intents: list[dict] = []
+    candidate_rows: list[list[dict]] = []
+    for index, scene in enumerate(scenes):
         if not isinstance(scene, Mapping):
             raise ValueError("Cena de pré-curadoria inválida.")
-        numbered = {**scene, "number": i}
-        intent = scene_search_context(scenes, i - 1, subject)
+        intent = scene_search_context(scenes, index, subject)
+        intents.append(intent)
+        numbered = {**scene, "number": index + 1}
         candidates = [
-            _score(numbered, intent, name, source_metadata.get(name, {}))
+            _score(numbered, intent, name, source_metadata[name])
             for name in names
         ]
-        candidates.sort(key=lambda row: (-row["score"], used[row["name"]], row["name"]))
-        eligible = [
-            row for row in candidates
-            if row["score"] >= min_score and used[row["name"]] < max_uses
-        ]
-        best = eligible[0] if eligible else None
-        # Prevent adjacent repeats when another reasonable candidate exists.
-        if best and result and best["name"] == result[-1]["primary"]:
-            alternative = next(
-                (row for row in eligible if row["name"] != best["name"]), None
-            )
-            if alternative is not None:
-                best = alternative
-        if best:
-            used[best["name"]] += 1
-        backups = [
+        candidates.sort(key=lambda row: (-row["score"], row["name"]))
+        candidate_rows.append(candidates)
+
+    viable = [
+        [row for row in rows if row["score"] >= min_score]
+        for rows in candidate_rows
+    ]
+    # Place scarce scenes before scenes with many matching alternatives.
+    # This does not fabricate content or weaken the minimum metadata score.
+    priority = sorted(
+        range(len(scenes)),
+        key=lambda i: (len(viable[i]),
+                       -(viable[i][0]["score"] if viable[i] else 0), i),
+    )
+    used: Counter[str] = Counter()
+    assigned: dict[int, dict] = {}
+    for index in priority:
+        candidates = sorted(
+            (row for row in viable[index] if used[row["name"]] < max_uses),
+            key=lambda row: (
+                row["name"] in {
+                    assigned[neighbor]["name"]
+                    for neighbor in (index - 1, index + 1)
+                    if neighbor in assigned
+                },
+                -row["score"], used[row["name"]], row["name"],
+            ),
+        )
+        if candidates:
+            chosen = candidates[0]
+            assigned[index] = chosen
+            used[chosen["name"]] += 1
+
+    result = []
+    for i, scene in enumerate(scenes):
+        best = assigned.get(i)
+        viable_rows = viable[i]
+        candidates = candidate_rows[i]
+        if best is not None:
+            reason = "proposta_por_metadados"
+        elif not viable_rows:
+            reason = "sem_correspondencia_suficiente_nos_metadados"
+        else:
+            reason = "limite_de_repeticao_atingido"
+        alternatives = [
             {"file": row["name"], "metadata_score": row["score"],
              "reasons": row["reasons"]}
-            for row in candidates
-            if row["score"] >= min_score and (not best or row["name"] != best["name"])
+            for row in viable_rows
+            if best is None or row["name"] != best["name"]
         ][:2]
         result.append({
-            "scene_number": i,
+            "scene_number": i + 1,
             "start_seconds": scene.get("start_seconds"),
             "end_seconds": scene.get("end_seconds"),
             "text": str(scene.get("text") or "")[:250],
-            "intent": intent,
+            "intent": intents[i],
             "primary": best["name"] if best else None,
             "metadata_score": best["score"] if best else 0,
-            "reasons": best["reasons"] if best else ["sem_candidato_elegivel"],
-            "alternatives": backups,
+            "best_candidate_score": candidates[0]["score"] if candidates else 0,
+            "eligible_candidates": len(viable_rows),
+            "blocker": reason,
+            "reasons": best["reasons"] if best else [reason],
+            "alternatives": alternatives,
             "status": "proposal_for_human_review" if best else "unresolved",
             "visual_content_verified": False,
             "rights_verified": False,
             "human_approved": False,
         })
+
     return {
         "version": 1,
         "status": "metadata_precuration_only",
