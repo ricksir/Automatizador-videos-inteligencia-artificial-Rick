@@ -383,6 +383,16 @@ def render_editorial_panel(
                     f"incluindo {recovered} originalmente acima de 64 MB. "
                     "O limite de tamanho continua ativo."
                 )
+            context_photos = discovery.get("context_photos")
+            if isinstance(context_photos, dict):
+                count = context_photos.get("imported_count", 0)
+                tried = context_photos.get("searched_contexts", [])
+                st.caption(
+                    f"Fallback Wikimedia Commons: {count} foto(s)/documento(s) "
+                    f"adicionados de {len(tried)} contextos pesquisados. "
+                    "Somente arquivos com metadados CC0/domínio público elegíveis "
+                    "foram importados; a imagem e os direitos não foram homologados."
+                )
             diagnostics = discovery.get("diagnostics", [])
             if diagnostics:
                 st.caption(
