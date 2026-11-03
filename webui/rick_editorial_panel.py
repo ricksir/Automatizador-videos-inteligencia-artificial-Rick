@@ -521,6 +521,16 @@ def render_editorial_panel(
                     f"(score de metadados {proposed['metadata_score']}/95). "
                     "A mídia NÃO foi confirmada visualmente."
                 )
+                st.caption(
+                    "Motivos (metadados): "
+                    + ", ".join(proposed.get("reasons", [])[:4])
+                )
+                alternatives = proposed.get("alternatives", [])
+                if alternatives:
+                    st.caption(
+                        "Alternativas encontradas: "
+                        + " • ".join(row["file"] for row in alternatives[:2])
+                    )
             if not ranked:
                 st.info("Nenhum material correspondente foi identificado para esta cena.")
             else:
