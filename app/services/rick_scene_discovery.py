@@ -20,7 +20,7 @@ from app.models.schema import VideoAspect
 from app.services import material
 from app.services.rick_auto_commons import download_commons_still, find_commons_stills
 from app.services.rick_editorial_assets import import_editorial_material
-from app.services.rick_scene_precuration import scene_intent
+from app.services.rick_scene_precuration import scene_search_context
 from app.services.rick_visual_curation import person_anchor
 
 _ALLOWED_VIDEO_HOSTS = frozenset({"videos.pexels.com", "cdn.pixabay.com"})
@@ -100,6 +100,7 @@ def discover_scene_media(
     source_metadata: Mapping[str, Mapping],
     max_stills: int = 8,
     max_clips: int = 8,
+    priority_scene_numbers: Sequence[int] | None = None,
 ) -> dict:
     """Import distinct candidates; never reimport the same provider asset."""
     if (
@@ -109,6 +110,17 @@ def discover_scene_media(
         or type(max_clips) is not int or not 0 <= max_clips <= 12
     ):
         raise ValueError("Solicitação de descoberta editorial inválida.")
+    if priority_scene_numbers is not None and (
+        not isinstance(priority_scene_numbers, (list, tuple))
+        or len(priority_scene_numbers) > len(scenes)
+        or any(type(i) is not int or i < 1 or i > len(scenes)
+               for i in priority_scene_numbers)
+    ):
+        raise ValueError("Lista de cenas prioritárias inválida.")
+    priority = list(dict.fromkeys(priority_scene_numbers or []))
+    ordered = priority + [
+        idx for idx in range(1, len(scenes) + 1) if idx not in priority
+    ]
     existing = {
         str(meta.get("asset_id"))
         for meta in source_metadata.values()
@@ -151,10 +163,11 @@ def discover_scene_media(
         issues.append("Nenhuma chave Pexels/Pixabay configurada para vídeos contextuais.")
     searched: set[str] = set()
     if provider and max_clips:
-        for index, scene in enumerate(scenes, 1):
-            if len([r for r in imported if r["media_kind"] == "stock_video"]) >= max_clips:
+        imported_stock = 0
+        for index in ordered:
+            if imported_stock >= max_clips:
                 break
-            intent = scene_intent(scene, subject)
+            intent = scene_search_context(scenes, index - 1, subject)
             # A generic query like "Gramsci Brazil" can retrieve waterfalls or
             # unrelated scenes. Only search known semantic categories.
             if intent["kind"] in {"general", "historical_person"}:
@@ -168,7 +181,10 @@ def discover_scene_media(
             except (OSError, ValueError, RuntimeError) as exc:
                 issues.append(f"Busca {intent['kind']}: {type(exc).__name__}")
                 continue
+            imported_for_query = 0
             for candidate in candidates[:12]:
+                if imported_stock >= max_clips or imported_for_query >= 2:
+                    break
                 info = getattr(candidate, "source_info", None)
                 if not isinstance(info, dict):
                     continue
@@ -198,11 +214,13 @@ def discover_scene_media(
                     "source_page": page,
                     "license_metadata": "não verificada automaticamente",
                 })
-                break
+                imported_stock += 1
+                imported_for_query += 1
     return {
         "imported_count": len(imported),
         "imported": imported,
         "searched_intents": sorted(searched),
+        "priority_scene_numbers": priority,
         "issues": issues[:20],
         "visually_verified": False,
         "rights_verified": False,
