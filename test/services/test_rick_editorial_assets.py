@@ -160,7 +160,7 @@ def test_excluded_previous_approval_blocks_export(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.rick_review_render.voice.get_audio_duration", lambda _: 4.0
     )
-    with pytest.raises(ValueError, match="bloqueada"):
+    with pytest.raises(ValueError, match="Revisão editorial incompleta"):
         prepare_reviewed_export(root, "example", cache_dir=cache)
     assert (folder / "original.mp4").read_bytes() == b"ORIGINAL VIDEO"
 
