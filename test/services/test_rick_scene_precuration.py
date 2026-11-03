@@ -348,3 +348,129 @@ def test_contextual_search_candidate_is_ranked_for_short_speech_fragment():
     assert report["scenes"][0]["primary"] == "peaceful-change.mp4"
     assert report["scenes"][0]["status"] == "proposal_for_human_review"
     assert report["scenes"][0]["visual_content_verified"] is False
+
+
+def test_scarcity_first_does_not_spend_only_portrait_on_generic_book_scene():
+    scenes = [
+        {"text": "Livros e manuscritos antigos contam a história",
+         "search_term": "historical books documents manuscript"},
+        {"text": "Gramsci estudou e escreveu",
+         "search_term": "Gramsci theory"},
+    ]
+    metadata = {
+        "portrait.mp4": {
+            "title": "Gramsci historical portrait",
+            "search_term": "historical books documents manuscript",
+            "source_page": "https://commons.wikimedia.org/wiki/File:Gramsci.png",
+            "provider": "Commons", "scene_number": 1,
+        },
+        "books.mp4": {
+            "title": "historical books manuscripts",
+            "search_term": "historical books documents manuscript",
+            "source_page": "https://www.pexels.com/video/222/",
+            "provider": "pexels",
+        },
+    }
+    report = build_precuration(
+        "O filósofo Gramsci", scenes, metadata, list(metadata), max_uses=1,
+    )
+    assert report["proposed_count"] == 2
+    assert report["scenes"][0]["primary"] == "books.mp4"
+    assert report["scenes"][1]["primary"] == "portrait.mp4"
+    assert report["scenes"][0]["blocker"] == "proposta_por_metadados"
+
+
+def test_unresolved_scene_distinguishes_missing_metadata_from_reuse_limit():
+    unknown = build_precuration(
+        "Tema geral",
+        [{"text": "Nas eleições as pessoas votam"}],
+        {"random.mp4": {"title": "Waterfall nature landscape"}},
+        ["random.mp4"],
+    )
+    assert unknown["scenes"][0]["primary"] is None
+    assert unknown["scenes"][0]["blocker"] == (
+        "sem_correspondencia_suficiente_nos_metadados"
+    )
+    assert unknown["scenes"][0]["eligible_candidates"] == 0
+
+    same = [{"text": "Nas eleições as pessoas votam"}] * 2
+    meta = {
+        "voting.mp4": {
+            "title": "elections voting ballot people",
+            "search_term": "elections voting ballot people",
+        }
+    }
+    limited = build_precuration("Eleições", same, meta, list(meta), max_uses=1)
+    assert limited["proposed_count"] == 1
+    assert limited["scenes"][1]["blocker"] == "limite_de_repeticao_atingido"
+    assert limited["scenes"][1]["eligible_candidates"] == 1
+
+
+def test_alternate_stock_provider_finds_media_when_first_is_empty(monkeypatch):
+    calls = []
+    imported = []
+
+    def pexels(query, *_args):
+        calls.append(("pexels", query))
+        return []
+
+    def pixabay(query, *_args):
+        calls.append(("pixabay", query))
+        return [
+            SimpleNamespace(
+                url="https://cdn.pixabay.com/video/2026/07/28/77.mp4",
+                source_info={
+                    "asset_id": "77",
+                    "source_page": "https://pixabay.com/videos/77/",
+                },
+            ),
+        ]
+
+    monkeypatch.setattr(
+        discovery, "_stock_provider", lambda: ("pexels", pexels),
+    )
+    monkeypatch.setattr(
+        discovery, "_secondary_stock_provider",
+        lambda name: ("pixabay", pixabay),
+    )
+    monkeypatch.setattr(discovery, "_download_stock_clip", lambda *_: b"FAKE")
+    monkeypatch.setattr(
+        discovery, "import_editorial_material",
+        lambda *a, **kw: (imported.append(kw) or "saved.mp4"),
+    )
+    result = discovery.discover_scene_media(
+        "/unused", "task-id", subject="Instituições",
+        scenes=[{"text": "Nas eleições as pessoas depositam votos"}],
+        source_metadata={}, max_stills=0, max_clips=1, search_variants=True,
+    )
+    assert calls[:2] == [
+        ("pexels", "elections voting ballot people"),
+        ("pixabay", "elections voting ballot people"),
+    ]
+    assert imported[0]["asset_id"] == "pixabay:77"
+    assert result["imported_count"] == 1
+    assert result["search_requests"] == 2
+    assert result["visually_verified"] is False
+
+
+def test_alternative_phrasing_is_bounded_and_never_claims_visual_review(monkeypatch):
+    queries = []
+    monkeypatch.setattr(discovery, "_stock_provider", lambda: (
+        "pexels", lambda query, *_: (queries.append(query) or []),
+    ))
+    monkeypatch.setattr(
+        discovery, "_secondary_stock_provider", lambda _: (None, None),
+    )
+    report = discovery.discover_scene_media(
+        "/unused", "task-id", subject="Instituições",
+        scenes=[{"text": "O parlamento mantém instituições políticas"}],
+        source_metadata={}, max_stills=0, max_clips=3, search_variants=True,
+    )
+    assert queries == [
+        "parliament government institutions",
+        "parliament interior",
+        "government chamber",
+    ]
+    assert report["search_requests"] == 3
+    assert report["imported_count"] == 0
+    assert report["rights_verified"] is False
