@@ -99,8 +99,17 @@ def _eligible_image(page: dict, subject: str) -> dict | None:
     # A street/avenue named after a historical person is not a portrait
     # or document about that person's ideas. Never fill scenes with it.
     if set(normalized_title.split()) & {
+        # A street, building or memorial named after a thinker is not a
+        # photograph of the thinker.
         "via", "street", "road", "avenue", "avenida", "rua",
         "piazza", "plaza", "square", "strada", "viale",
+        "statue", "monument", "monumento", "museo", "museum",
+        "tomb", "grave", "placa", "plaque", "memorial",
+        # Another family member's portrait is not a portrait of the
+        # subject, even if the filename also mentions the subject.
+        "father", "mother", "parents", "brother", "sister",
+        "wife", "husband", "daughter", "son", "padre",
+        "madre", "figlio", "figlia", "familia", "family",
     }:
         return None
     if Path(title).suffix.lower() not in {".jpg", ".jpeg", ".png"}:
