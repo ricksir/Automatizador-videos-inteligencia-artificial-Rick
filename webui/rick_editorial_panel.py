@@ -221,7 +221,15 @@ def render_editorial_panel(
     )
     notice_key = f"rick_editorial_notice_v4_{selected_id}"
     if notice_key in st.session_state:
-        st.success(st.session_state.pop(notice_key))
+        notice = st.session_state.pop(notice_key)
+        if isinstance(notice, dict):
+            message = str(notice.get("message") or "")
+            if notice.get("level") == "warning":
+                st.warning(message)
+            else:
+                st.success(message)
+        else:
+            st.success(notice)
     curation = inspect_visual_scenes(
         str(by_id[selected_id].get("subject") or ""),
         scenes,
@@ -311,12 +319,18 @@ def render_editorial_panel(
                     # after the fresh workspace is loaded on st.rerun().
                     # This avoids overwriting a human choice with an obsolete
                     # option that was absent from the old inventory.
-                    st.session_state[notice_key] = (
-                        f"Pré-curadoria pronta: {report['proposed_count']}/"
-                        f"{report['scene_count']} propostas; "
-                        f"{report['unresolved_count']} cenas ainda pendentes. "
-                        "Nada foi aprovado automaticamente."
-                    )
+                    st.session_state[notice_key] = {
+                        "level": (
+                            "warning" if report["unresolved_count"] else "success"
+                        ),
+                        "message": (
+                            f"Pré-curadoria parcial: {report['proposed_count']}/"
+                            f"{report['scene_count']} propostas; "
+                            f"{report['unresolved_count']} cenas ainda sem "
+                            "candidato comprovado pelos metadados. "
+                            "Nada foi aprovado automaticamente."
+                        ),
+                    }
                     st.rerun()
         st.dataframe([
             {
