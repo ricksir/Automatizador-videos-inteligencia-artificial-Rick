@@ -111,6 +111,12 @@ def run_scene_precuration(
     )
     if discovery is not None:
         report["discovery"] = discovery
+        # This is a bounded, local FFmpeg pixel check, not AI understanding.
+        # Run only after an explicit discovery action, never just on page load.
+        from app.services.rick_visual_media_audit import inspect_proposed_visuals
+        report["visual_audit"] = inspect_proposed_visuals(
+            report, workspace["paths"], max_files=20,
+        )
     document = {
         "version": 1,
         "preview_sha256": workspace["preview_sha256"],

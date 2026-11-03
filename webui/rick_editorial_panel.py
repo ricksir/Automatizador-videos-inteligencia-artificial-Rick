@@ -324,10 +324,16 @@ def render_editorial_panel(
                             "warning" if report["unresolved_count"] else "success"
                         ),
                         "message": (
-                            f"Pré-curadoria parcial: {report['proposed_count']}/"
+                            (
+                                "Propostas completas por metadados: "
+                                if not report["unresolved_count"]
+                                else "Pré-curadoria parcial por metadados: "
+                            )
+                            + f"{report['proposed_count']}/"
                             f"{report['scene_count']} propostas; "
-                            f"{report['unresolved_count']} cenas ainda sem "
-                            "candidato comprovado pelos metadados. "
+                            f"{report['unresolved_count']} cenas sem "
+                            "candidato. A correspondência visual, os direitos "
+                            "e a sincronização NÃO foram homologados. "
                             "Nada foi aprovado automaticamente."
                         ),
                     }
@@ -351,6 +357,34 @@ def render_editorial_panel(
             }
             for row in precure["scenes"]
         ], hide_index=True, use_container_width=True)
+        visual = precure.get("visual_audit")
+        if isinstance(visual, dict):
+            st.markdown("**Inspeção local de quadros — indicadores técnicos**")
+            st.caption(
+                f"{visual.get('inspected', 0)}/{visual.get('attempted', 0)} "
+                "arquivos inspecionados; "
+                f"{visual.get('possible_duplicates', 0)} possivelmente semelhantes; "
+                f"{visual.get('possible_blank', 0)} possivelmente escuros/vazios. "
+                "Foram examinados até dois quadros por arquivo, sem chamada de IA."
+            )
+            st.warning(
+                "Inspeção de pixels NÃO identifica pessoas, objetos, época "
+                "histórica ou coerência semântica com a fala. "
+                "Propostas continuam pendentes de avaliação editorial e direitos."
+            )
+            rows = visual.get("files", [])
+            if rows:
+                st.dataframe([
+                    {
+                        "Arquivo": item.get("file", ""),
+                        "Quadros": item.get("frames_read", 0),
+                        "Situação": item.get("status", ""),
+                        "Movimento (indicador)": item.get("motion_indicator"),
+                        "Possível similar": item.get("similar_to") or "",
+                        "Avisos": ", ".join(item.get("flags", [])) or "Sem alertas técnicos",
+                    }
+                    for item in rows[:20] if isinstance(item, dict)
+                ], hide_index=True, use_container_width=True)
         if isinstance(precure.get("discovery"), dict):
             discovery = precure["discovery"]
             st.caption(
