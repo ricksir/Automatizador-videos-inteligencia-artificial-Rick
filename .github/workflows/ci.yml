@@ -199,3 +199,4 @@ jobs:
           test/services/test_rick_scene_precuration.py
           test/services/test_rick_02c_stock_diagnostics.py
           test/services/test_rick_02c_fallback_renditions.py
+          test/services/test_rick_02c_context_photos.py
