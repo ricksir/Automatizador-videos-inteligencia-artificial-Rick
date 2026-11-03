@@ -405,7 +405,8 @@ def render_editorial_panel(
                         st.caption("Relatório local: " + new_video["report"])
 
     mode = st.radio(
-        "Modo de revisão", ["Uma cena por vez", "Todas as cenas"],
+        "Modo de revisão",
+        ["Uma cena por vez", "Todas as cenas", "Só cenas sem sugestão ou com score baixo"],
         horizontal=True, key=f"rick_editorial_mode_{selected_id}",
     )
     scene_key = f"rick_editorial_single_{selected_id}"
@@ -439,6 +440,17 @@ def render_editorial_panel(
                 key=f"rick_review_next_v4_{selected_id}",
             )
         scene_indexes = [chosen_scene]
+    elif mode == "Só cenas sem sugestão ou com score baixo":
+        scene_indexes = [
+            number for number in range(1, len(scenes) + 1)
+            if not proposals.get(number, {}).get("primary")
+            or proposals.get(number, {}).get("metadata_score", 0) < 60
+        ]
+        st.caption(
+            f"{len(scene_indexes)} cenas prioritárias para revisão. "
+            "As demais também exigem validação de conteúdo e direitos "
+            "antes de qualquer aprovação ou publicação."
+        )
     else:
         scene_indexes = list(range(1, len(scenes) + 1))
 
