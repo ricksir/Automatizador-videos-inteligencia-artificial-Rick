@@ -78,10 +78,25 @@ def run_scene_precuration(
     discovery = None
     if discover:
         from app.services.rick_scene_discovery import discover_scene_media
+
+        initial = build_precuration(
+            subject, workspace["preview"]["scenes"],
+            workspace["source_metadata"], list(workspace["paths"]),
+        )
+        # Spend the bounded media-search budget on unresolved scenes first,
+        # then on existing but weak metadata candidates.
+        priority = [
+            row["scene_number"] for row in initial["scenes"]
+            if not row["primary"]
+        ] + [
+            row["scene_number"] for row in initial["scenes"]
+            if row["primary"] and row["metadata_score"] < 60
+        ]
         discovery = discover_scene_media(
             tasks_root, task_id, subject=subject,
             scenes=workspace["preview"]["scenes"],
             source_metadata=workspace["source_metadata"],
+            priority_scene_numbers=priority,
         )
         workspace = load_review_workspace(
             tasks_root, task_id, state_materials,
