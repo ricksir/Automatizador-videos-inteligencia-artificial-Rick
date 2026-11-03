@@ -385,6 +385,106 @@ def render_editorial_panel(
                     }
                     for item in rows[:20] if isinstance(item, dict)
                 ], hide_index=True, use_container_width=True)
+        with st.expander(
+            "Rick — Avaliação semântica por IA (opcional, envio externo)",
+            expanded=False,
+        ):
+            from app.config import config
+
+            st.caption(
+                "Teste limitado: até 6 cenas por execução, enviando até 2 quadros "
+                "por mídia e o trecho da narração para a API Gemini configurada. "
+                "Pode consumir sua cota ou gerar cobranças. Nenhuma mídia é "
+                "enviada sem seu consentimento e um clique explícito."
+            )
+            key_ready = bool(str(config.app.get("gemini_api_key") or "").strip())
+            model_name = str(config.app.get("gemini_model_name") or "").strip()
+            if not key_ready or not model_name:
+                st.warning(
+                    "Configure a chave Gemini e um modelo multimodal "
+                    "compatível nas configurações do programa para habilitar."
+                )
+            choices = list(range(1, len(scenes) + 1, 6))
+            first_scene = st.selectbox(
+                "Lote de cenas para analisar", choices,
+                format_func=lambda n: (
+                    f"Cenas {n}–{min(n + 5, len(scenes))}"
+                ),
+                key=f"rick_ai_visual_batch_{selected_id}",
+            )
+            authorized = st.checkbox(
+                "Autorizo o envio externo dos quadros e dos trechos da "
+                "narração deste lote à API Gemini. Estou ciente do "
+                "possível consumo de cota ou cobrança.",
+                key=f"rick_ai_visual_consent_{selected_id}",
+            )
+            if st.button(
+                "Analisar este lote com IA visual",
+                disabled=not (authorized and key_ready and model_name),
+                key=f"rick_ai_visual_start_{selected_id}",
+            ):
+                from app.services.rick_semantic_frame_review import review_scene_frames
+
+                with st.spinner("Inspecionando os quadros e comparando com a narração..."):
+                    try:
+                        semantic = review_scene_frames(
+                            precure, paths,
+                            subject=str(by_id[selected_id].get("subject") or ""),
+                            api_key=str(config.app.get("gemini_api_key") or ""),
+                            model=model_name,
+                            consent=authorized,
+                            max_scenes=6,
+                            first_scene=first_scene,
+                        )
+                    except (ValueError, OSError, RuntimeError) as exc:
+                        st.error(
+                            "Análise semântica indisponível: "
+                            + type(exc).__name__
+                        )
+                    else:
+                        st.session_state[
+                            f"rick_ai_visual_result_{selected_id}_{first_scene}"
+                        ] = semantic
+            stored = st.session_state.get(
+                f"rick_ai_visual_result_{selected_id}_{first_scene}"
+            )
+            if isinstance(stored, dict):
+                st.caption(
+                    f"{stored.get('assessed', 0)} avaliações retornadas "
+                    f"em {stored.get('api_requests', 0)} chamadas. "
+                    "A opinião da IA não equivale à validação editorial."
+                )
+                current = {
+                    row.get("scene_number"): row.get("primary")
+                    for row in precure.get("scenes", [])
+                    if isinstance(row, dict)
+                }
+                records = [
+                    row for row in stored.get("results", [])
+                    if isinstance(row, dict)
+                    and current.get(row.get("scene_number")) == row.get("file")
+                ]
+                st.dataframe([
+                    {
+                        "Cena": row["scene_number"],
+                        "Arquivo": row["file"],
+                        "Avaliação": row["verdict"],
+                        "Evidência observada": row["visible_evidence"],
+                        "Motivo": row["reason"],
+                        "Estado": row["status"],
+                    }
+                    for row in records
+                ], hide_index=True, use_container_width=True)
+                if len(records) < len(stored.get("results", [])):
+                    st.warning(
+                        "Algumas propostas mudaram após a análise. "
+                        "Os resultados antigos foram ocultados."
+                    )
+                st.warning(
+                    "Avaliação da IA é falível e não confirma a identidade "
+                    "de pessoas, precisão histórica, licença, direitos de "
+                    "uso ou alinhamento temporal. Nenhuma cena foi aprovada."
+                )
         if isinstance(precure.get("discovery"), dict):
             discovery = precure["discovery"]
             st.caption(
