@@ -97,6 +97,7 @@ def run_scene_precuration(
             scenes=workspace["preview"]["scenes"],
             source_metadata=workspace["source_metadata"],
             priority_scene_numbers=priority,
+            search_variants=True,
         )
         workspace = load_review_workspace(
             tasks_root, task_id, state_materials,
