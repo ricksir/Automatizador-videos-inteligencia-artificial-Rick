@@ -113,6 +113,41 @@ def test_rejected_clips_are_hidden_task_wide_but_can_be_restored(tmp_path):
     )["paths"]
 
 
+def test_discard_revokes_only_dependent_approval_even_after_restore(tmp_path):
+    root, folder, cache = _task(tmp_path)
+    imported = import_editorial_material(
+        root, "example", "licensed.mp4", _MP4, scene_number=2,
+        source_note="Arquivo próprio declarado",
+    )
+    ws = load_review_workspace(root, "example", [], cache_dir=cache)
+    approved = save_editorial_workspace_review(
+        root, "example", ws["preview_sha256"], list(ws["paths"].values()),
+        [_human(1, "generic.mp4"), _human(2, imported)], cache_dir=cache,
+    )
+    assert approved["status"] == "ready_human_reviewed"
+    original_script = (folder / "script.json").read_bytes()
+    original_video = (folder / "original.mp4").read_bytes()
+
+    exclude_editorial_material(root, "example", "generic.mp4")
+    after_discard = load_review_workspace(root, "example", [], cache_dir=cache)
+    review = after_discard["saved_review"]
+    assert review["status"] == "blocked"
+    assert review["human_approved_count"] == 1
+    assert review["scenes"][0]["assigned_material_file"] is None
+    assert review["scenes"][0]["editorial_review"] == "unreviewed"
+    assert review["scenes"][1]["assigned_material_file"] == imported
+    assert review["scenes"][1]["editorial_review"] == "approved_by_human"
+    assert {"scene_number": 1, "code": "review_missing"} in review["blockers"]
+
+    restore_editorial_material(root, "example", "generic.mp4")
+    after_restore = load_review_workspace(root, "example", [], cache_dir=cache)
+    assert "generic.mp4" in after_restore["paths"]
+    assert after_restore["saved_review"]["status"] == "blocked"
+    assert after_restore["saved_review"]["human_approved_count"] == 1
+    assert (folder / "script.json").read_bytes() == original_script
+    assert (folder / "original.mp4").read_bytes() == original_video
+
+
 def test_excluded_previous_approval_blocks_export(tmp_path, monkeypatch):
     root, folder, cache = _task(tmp_path)
     ws = load_review_workspace(root, "example", [], cache_dir=cache)
