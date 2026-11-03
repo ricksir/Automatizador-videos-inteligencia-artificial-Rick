@@ -33,13 +33,14 @@ def _trusted_video_url(url: str) -> bool:
         return False
     try:
         parsed = urlsplit(url)
+        port = parsed.port
     except ValueError:
         return False
     return (
         parsed.scheme == "https"
         and parsed.hostname in _ALLOWED_VIDEO_HOSTS
         and not parsed.username and not parsed.password
-        and parsed.port is None
+        and port is None
         and parsed.path.lower().endswith(".mp4")
         and not parsed.fragment
     )
@@ -426,10 +427,6 @@ def discover_scene_media(
                                 break
                         if data is None:
                             continue
-                        if chosen_rendition:
-                            lower_rendition_selected += 1
-                            if had_oversized_primary:
-                                oversized_primary_recovered += 1
                         try:
                             local = import_editorial_material(
                                 tasks_root, task_id, "video.mp4", data,
@@ -449,6 +446,10 @@ def discover_scene_media(
                                 f"etapa=import, causa={record['code']}"
                             )
                             continue
+                        if chosen_rendition:
+                            lower_rendition_selected += 1
+                            if had_oversized_primary:
+                                oversized_primary_recovered += 1
                         existing.add(key)
                         imported.append({
                             "file": local, "media_kind": "stock_video",
