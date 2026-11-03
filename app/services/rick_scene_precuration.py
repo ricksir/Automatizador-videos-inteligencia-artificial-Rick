@@ -216,7 +216,7 @@ def build_precuration(
         if not isinstance(scene, Mapping):
             raise ValueError("Cena de pré-curadoria inválida.")
         numbered = {**scene, "number": i}
-        intent = scene_intent(scene, subject)
+        intent = scene_search_context(scenes, i - 1, subject)
         candidates = [
             _score(numbered, intent, name, source_metadata.get(name, {}))
             for name in names
