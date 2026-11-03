@@ -183,6 +183,55 @@ def retained_human_decisions(saved_scenes: Sequence[Mapping], *,
     return decisions
 
 
+def classify_review_materials(
+    scene: Mapping,
+    source_metadata: Mapping[str, Mapping],
+    available_names: Sequence[str],
+    *,
+    historical_person: str | None = None,
+) -> dict:
+    """Separate metadata-linked candidates from the remaining task library.
+
+    Only an exact normalized search query recorded on the asset qualifies as
+    a scene suggestion. A historical name appearing in a different query
+    is a clue for *manual inspection*, not evidence of the video's contents.
+    No file is selected, approved, visually verified or licensed here.
+    """
+    ranked = order_review_materials(scene, source_metadata, available_names)
+    search = _norm(str(scene.get("search_term") or ""))
+    anchor = _norm(historical_person) if isinstance(historical_person, str) else ""
+    person_relevant = bool(anchor and (
+        anchor in _norm(str(scene.get("text") or ""))
+        or anchor in search
+    ))
+    suggested = []
+    other = []
+    reasons = {}
+    for name in ranked:
+        meta = source_metadata.get(name, {})
+        if not isinstance(meta, Mapping):
+            meta = {}
+        registered = _norm(str(meta.get("search_term") or ""))
+        if search and registered and search == registered:
+            suggested.append(name)
+            reasons[name] = "exact_search_metadata_only"
+        else:
+            other.append(name)
+            record_tokens = set(registered.split())
+            anchor_tokens = set(anchor.split())
+            if person_relevant and anchor_tokens and anchor_tokens <= record_tokens:
+                reasons[name] = "historical_name_metadata_only"
+            else:
+                reasons[name] = "no_demonstrated_metadata_match"
+    return {
+        "suggested": suggested,
+        "other": other,
+        "reasons": reasons,
+        "visual_content_verified": False,
+        "human_approval_inferred": False,
+    }
+
+
 def order_review_materials(
     scene: Mapping,
     source_metadata: Mapping[str, Mapping],
