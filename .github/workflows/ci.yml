@@ -200,3 +200,4 @@ jobs:
           test/services/test_rick_02c_stock_diagnostics.py
           test/services/test_rick_02c_fallback_renditions.py
           test/services/test_rick_02c_context_photos.py
+          test/services/test_rick_02d_visual_media_audit.py
