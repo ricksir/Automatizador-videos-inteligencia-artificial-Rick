@@ -122,7 +122,7 @@ def test_review_and_exclusions_are_isolated_across_tasks(tmp_path):
     shutil.copytree(folder, other_folder)
     materials_b = [str(other_folder / Path(name).name) for name in materials_a]
     a = load_review_workspace(root, "task-123", materials_a)
-    b = load_review_workspace(root, "task-other", materials_b)
+    assert load_review_workspace(root, "task-other", materials_b)["saved_review"] is None
     save_editorial_workspace_review(
         root, "task-123", a["preview_sha256"], materials_a, approvals()
     )

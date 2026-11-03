@@ -195,3 +195,4 @@ jobs:
           test/services/test_rick_review_render.py
           test/services/test_rick_scene_timeline.py
           test/services/test_rick_auto_commons.py
+          test/services/test_rick_daily_autopilot.py

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "enabled": false,
+  "publish_enabled": false,
+  "timezone": "America/Sao_Paulo",
+  "start_date": "2026-11-04",
+  "platforms": ["youtube", "instagram", "tiktok"],
+  "topics": [
+    "Como uma ideia se torna dominante na sociedade",
+    "Três invenções que mudaram a história da comunicação",
+    "Por que os mapas antigos eram tão diferentes",
+    "Como funcionavam os primeiros computadores",
+    "O que são os semicondutores e por que importam",
+    "Como o rádio transformou o mundo",
+    "Como satélites ajudam na previsão do tempo"
+  ],
+  "video_params": {
+    "video_source": "pexels",
+    "voice_name": "pt-BR-AntonioNeural",
+    "voice_rate": 1.0,
+    "video_clip_duration": 4,
+    "video_concat_mode": "sequential",
+    "subtitle_enabled": true,
+    "bgm_type": "",
+    "bgm_volume": 0.0
+  }
+}
