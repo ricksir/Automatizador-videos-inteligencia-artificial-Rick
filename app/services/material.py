@@ -286,7 +286,14 @@ def _stock_search_results(provider: str, response: Any, key: str) -> list | None
     except (TypeError, ValueError):
         status = 0
     headers = getattr(response, "headers", {}) or {}
-    content_type = str(headers.get("content-type", "unknown"))
+    content_type = str(headers.get("content-type", "")).lower()
+    # A remote header is untrusted; log only a fixed category, not raw values.
+    mime_group = (
+        "html" if "text/html" in content_type
+        else "json" if "application/json" in content_type
+        else "unknown" if not content_type
+        else "other"
+    )
     if status == 401:
         logger.error(
             f"{provider} rejected the API key: status=401. "
@@ -303,7 +310,7 @@ def _stock_search_results(provider: str, response: Any, key: str) -> list | None
     if status >= 400 or status <= 0:
         logger.error(
             f"{provider} search request failed: status={status}, "
-            f"content_type={content_type[:100]!r}"
+            f"content_type={mime_group}"
         )
         return None
     try:
@@ -311,7 +318,7 @@ def _stock_search_results(provider: str, response: Any, key: str) -> list | None
     except ValueError:
         logger.error(
             f"{provider} returned a non-JSON search response: status={status}, "
-            f"content_type={content_type[:100]!r}"
+            f"content_type={mime_group}"
         )
         return None
     if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
