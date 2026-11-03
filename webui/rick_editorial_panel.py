@@ -28,6 +28,10 @@ from app.services.rick_visual_curation import (
     order_review_materials,
     classify_review_materials,
 )
+from app.services.rick_scene_precuration import build_precuration
+from app.services.rick_precuration_workspace import (
+    load_precuration, run_scene_precuration,
+)
 
 
 def _clear_scene_evidence(task_id: str, scene_number: int) -> None:
@@ -47,7 +51,44 @@ def _select_scene_material(task_id: str, scene_number: int, group: str) -> None:
         st.session_state[f"rick_editorial_material_v4_{suffix}"] = None
     else:
         raise ValueError("Invalid editorial picker group")
+    st.session_state[f"rick_editorial_manually_selected_v1_{suffix}"] = True
     _clear_scene_evidence(task_id, scene_number)
+
+
+def _hydrate_precuration_choice(
+    task_id: str,
+    scene_number: int,
+    proposal: str | None,
+    choices: Sequence[str | None],
+    *,
+    saved_approved: str | None = None,
+) -> None:
+    """Set a Streamlit widget key BEFORE creation, unlike selectbox index.
+
+    A pre-existing widget value (including None) overrides the `index`
+    parameter. Fill it only while the reviewer has never manipulated the
+    picker, and never replace an explicit or saved human selection.
+    """
+    suffix = f"{task_id}_{scene_number}"
+    key = f"rick_editorial_material_v4_{suffix}"
+    other_key = f"rick_editorial_other_v1_{suffix}"
+    manual_key = f"rick_editorial_manually_selected_v1_{suffix}"
+    state = st.session_state
+    if state.get(manual_key) is True or state.get(other_key) is not None:
+        return
+    # An existing human approval takes precedence over the new proposal.
+    # Restore its selected clip if the old widget session value is empty.
+    if saved_approved is not None:
+        if saved_approved in choices and state.get(key) is None:
+            state[key] = saved_approved
+        return
+    if not isinstance(proposal, str) or proposal not in choices:
+        return
+    # Nonempty existing values are either a reviewer choice or a prior
+    # proposal. Preserve them. A stale None from the old review UI is
+    # specifically the bug this migration fixes.
+    if state.get(key) is None or state.get(key) not in choices:
+        state[key] = proposal
 
 
 def _go_to_scene(key: str, number: int) -> None:
@@ -70,6 +111,15 @@ def _review_progress(saved_scenes: Sequence[dict[str, Any]], total: int) -> tupl
         if isinstance(scene, dict)
     )
     return approved, rejected
+
+
+def _priority_scene_numbers(proposals: dict, total: int, *, threshold: int = 60) -> list[int]:
+    """List unresolved/low-metadata-evidence scenes, without approving others."""
+    return [
+        number for number in range(1, total + 1)
+        if not proposals.get(number, {}).get("primary")
+        or proposals.get(number, {}).get("metadata_score", 0) < threshold
+    ]
 
 
 def render_editorial_panel(
@@ -171,7 +221,15 @@ def render_editorial_panel(
     )
     notice_key = f"rick_editorial_notice_v4_{selected_id}"
     if notice_key in st.session_state:
-        st.success(st.session_state.pop(notice_key))
+        notice = st.session_state.pop(notice_key)
+        if isinstance(notice, dict):
+            message = str(notice.get("message") or "")
+            if notice.get("level") == "warning":
+                st.warning(message)
+            else:
+                st.success(message)
+        else:
+            st.success(notice)
     curation = inspect_visual_scenes(
         str(by_id[selected_id].get("subject") or ""),
         scenes,
@@ -205,6 +263,120 @@ def render_editorial_panel(
             }
             for row in curation["scenes"]
         ], hide_index=True, use_container_width=True)
+
+    # Metadata pre-curation runs automatically for existing task materials.
+    # Online media discovery is optional and explicit: never charge/use the
+    # network just because a reviewer opened the Streamlit panel.
+    try:
+        precure = load_precuration(tasks_root, selected_id, workspace)
+    except (ValueError, OSError) as exc:
+        st.warning(f"Pré-curadoria salva indisponível: {exc}")
+        precure = None
+    if precure is None:
+        precure = build_precuration(
+            str(by_id[selected_id].get("subject") or ""),
+            scenes, workspace["source_metadata"], list(paths),
+        )
+    proposals = {
+        row["scene_number"]: row for row in precure["scenes"]
+        if isinstance(row, dict)
+    }
+    with st.expander("Rick — Pré-curadoria automática por cena", expanded=True):
+        st.caption(
+            "O Rick analisou o texto de cada cena e comparou os metadados "
+            "dos materiais disponíveis. Identifica contexto, ordena opções "
+            "e evita repetições excessivas. Não reconhece pixels nem comprova "
+            "se a mídia realmente corresponde à fala ou está licenciada."
+        )
+        st.write(
+            f"{precure['proposed_count']}/{precure['scene_count']} cenas com "
+            f"proposta • {precure['unresolved_count']} sem candidato suficiente • "
+            f"{precure['unique_selected_files']} arquivos principais distintos."
+        )
+        st.caption(
+            "Pontuação de metadados NÃO é probabilidade de acerto visual. "
+            "Nenhuma proposta é aprovação humana e não ativa publicação."
+        )
+        if st.button(
+            "Buscar novas fotos e vídeos e pré-curar todas as cenas",
+            key=f"rick_precuration_discover_{selected_id}",
+        ):
+            with st.spinner(
+                "Buscando materiais por contexto de cena e preparando propostas..."
+            ):
+                try:
+                    report = run_scene_precuration(
+                        tasks_root, selected_id, media_paths,
+                        subject=str(by_id[selected_id].get("subject") or ""),
+                        audio_duration=state.get("audio_duration"),
+                        cache_dir=utils.storage_dir("cache_videos"),
+                        discover=True,
+                    )
+                except (ValueError, OSError, RuntimeError) as exc:
+                    st.error(f"Pré-curadoria bloqueada: {exc}")
+                else:
+                    # Pre-fill is performed immediately before each picker,
+                    # after the fresh workspace is loaded on st.rerun().
+                    # This avoids overwriting a human choice with an obsolete
+                    # option that was absent from the old inventory.
+                    st.session_state[notice_key] = {
+                        "level": (
+                            "warning" if report["unresolved_count"] else "success"
+                        ),
+                        "message": (
+                            f"Pré-curadoria parcial: {report['proposed_count']}/"
+                            f"{report['scene_count']} propostas; "
+                            f"{report['unresolved_count']} cenas ainda sem "
+                            "candidato comprovado pelos metadados. "
+                            "Nada foi aprovado automaticamente."
+                        ),
+                    }
+                    st.rerun()
+        st.dataframe([
+            {
+                "Cena": row["scene_number"],
+                "Trecho": row["text"][:75],
+                "Intenção": row["intent"]["kind"],
+                "Consulta específica": row["intent"]["query"][:90],
+                "Proposta": row["primary"] or "SEM CANDIDATO",
+                "Score metadados": row["metadata_score"],
+                "Candidatos compatíveis": row.get("eligible_candidates", 0),
+                "Situação": (
+                    "Proposta para conferir"
+                    if row["primary"] else
+                    "Limite de reutilização" if row.get("blocker")
+                    == "limite_de_repeticao_atingido"
+                    else "Sem mídia com metadados suficientes"
+                ),
+            }
+            for row in precure["scenes"]
+        ], hide_index=True, use_container_width=True)
+        if isinstance(precure.get("discovery"), dict):
+            discovery = precure["discovery"]
+            st.caption(
+                f"Última busca: {discovery['imported_count']} arquivos adicionados "
+                "com registro de origem. Conteúdo e licença seguem sem homologação."
+            )
+            st.caption(
+                "Consultas ao banco: "
+                + str(discovery.get("search_requests", "não registrado"))
+                + " • arquivos de fontes diferentes buscados: "
+                + str(len(discovery.get("searched_intents", [])))
+                + " • materiais importados: "
+                + str(discovery.get("imported_count", 0))
+                + ". O número de arquivos existentes NÃO equivale ao número "
+                "de cenas semanticamente atendidas."
+            )
+            missed = discovery.get("skipped_candidates")
+            if isinstance(missed, dict) and any(missed.values()):
+                st.caption(
+                    "Candidatos descartados na busca: "
+                    f"{missed.get('duplicate', 0)} repetidos, "
+                    f"{missed.get('invalid_source', 0)} sem origem/URL elegível, "
+                    f"{missed.get('download_failed', 0)} com falha no download."
+                )
+            if discovery.get("issues"):
+                st.warning("Avisos da busca: " + "; ".join(discovery["issues"][:5]))
 
     with st.expander("Rick — Montagem automática com imagens históricas (experimental)", expanded=True):
         st.caption(
@@ -322,7 +494,8 @@ def render_editorial_panel(
                         st.caption("Relatório local: " + new_video["report"])
 
     mode = st.radio(
-        "Modo de revisão", ["Uma cena por vez", "Todas as cenas"],
+        "Modo de revisão",
+        ["Uma cena por vez", "Todas as cenas", "Só cenas sem sugestão ou com score baixo"],
         horizontal=True, key=f"rick_editorial_mode_{selected_id}",
     )
     scene_key = f"rick_editorial_single_{selected_id}"
@@ -356,6 +529,13 @@ def render_editorial_panel(
                 key=f"rick_review_next_v4_{selected_id}",
             )
         scene_indexes = [chosen_scene]
+    elif mode == "Só cenas sem sugestão ou com score baixo":
+        scene_indexes = _priority_scene_numbers(proposals, len(scenes))
+        st.caption(
+            f"{len(scene_indexes)} cenas prioritárias para revisão. "
+            "As demais também exigem validação de conteúdo e direitos "
+            "antes de qualquer aprovação ou publicação."
+        )
     else:
         scene_indexes = list(range(1, len(scenes) + 1))
 
@@ -380,14 +560,29 @@ def render_editorial_panel(
             expanded=(mode == "Uma cena por vez" or idx == 1),
         ):
             st.write(str(scene.get("text") or "Sem texto")[:2000])
+            proposed = proposals.get(idx) or {}
             st.caption(
-                "Busca sugerida: " + str(scene.get("search_term") or "(nenhuma)")
-                + " • Candidato automático: "
-                + str(scene.get("assigned_material_file") or "não encontrado")
+                "Manifesto original — busca: "
+                + str(scene.get("search_term") or "(nenhuma)")
+                + " • arquivo: "
+                + str(scene.get("assigned_material_file") or "não identificado")
             )
             triage = curation["scenes"][idx - 1]
-            if triage["issues"]:
-                st.warning("Alertas para conferência: " + "; ".join(triage["issues"]))
+            old_issues = list(triage["issues"])
+            if proposed.get("primary"):
+                old_issues = [
+                    issue for issue in old_issues
+                    if issue != "sem candidato correspondente no manifesto"
+                ]
+            if old_issues:
+                st.warning(
+                    "Alertas dos metadados originais: " + "; ".join(old_issues)
+                )
+            elif proposed.get("primary"):
+                st.info(
+                    "O manifesto antigo não tinha candidato para esta cena; "
+                    "a pré-curadoria encontrou uma sugestão para inspeção."
+                )
             st.caption(
                 "Buscas alternativas (não executadas automaticamente): "
                 + " • ".join(triage["suggested_queries"])
@@ -411,16 +606,48 @@ def render_editorial_panel(
                 scene, workspace["source_metadata"], choices,
                 historical_person=curation["subject_anchor"],
             )
+            proposed_primary = proposed.get("primary")
+            proposed_names = [
+                name for name in [
+                    proposed_primary,
+                    *[candidate["file"]
+                      for candidate in proposed.get("alternatives", [])],
+                ]
+                if isinstance(name, str) and name in paths
+            ]
             ranked = order_review_materials(
                 scene, workspace["source_metadata"], groups["suggested"],
             )
+            ranked = list(dict.fromkeys([
+                *([selected_default] if selected_default in paths else []),
+                *proposed_names, *ranked,
+            ]))
+            groups["other"] = [
+                name for name in groups["other"] if name not in ranked
+            ]
             review_choices = [None, *ranked]
+            if proposed_primary in paths:
+                st.caption(
+                    f"Pré-curadoria sugere: {proposed_primary} "
+                    f"(pontuação de metadados: {proposed['metadata_score']}). "
+                    "Isso NÃO é grau de certeza nem validação visual."
+                )
+                st.caption(
+                    "Motivos (metadados): "
+                    + ", ".join(proposed.get("reasons", [])[:4])
+                )
+                alternatives = proposed.get("alternatives", [])
+                if alternatives:
+                    st.caption(
+                        "Alternativas encontradas: "
+                        + " • ".join(row["file"] for row in alternatives[:2])
+                    )
             if not ranked:
                 st.info("Nenhum material correspondente foi identificado para esta cena.")
             else:
                 st.caption(
-                    "Materiais associados exclusivamente pela consulta registrada "
-                    "no manifesto. O conteúdo visual não foi verificado."
+                    "Materiais ordenados pela pré-curadoria e pelos metadados "
+                    "da tarefa. O conteúdo visual não foi verificado."
                 )
             with st.expander("Adicionar vídeo ou fotografia adequada (local)", expanded=False):
                 st.caption(
@@ -467,7 +694,13 @@ def render_editorial_panel(
             # otherwise defers both until Submit, causing the user to see
             # "no clip selected" even after selecting a valid file.
             suggested_default = (
-                selected_default if selected_default in review_choices else None
+                selected_default if selected_default in review_choices
+                else proposed_primary if proposed_primary in review_choices
+                else None
+            )
+            _hydrate_precuration_choice(
+                selected_id, idx, proposed_primary, review_choices,
+                saved_approved=selected_default,
             )
             suggested_choice = st.selectbox(
                 "1. Materiais sugeridos para esta cena (metadados)",
