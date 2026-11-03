@@ -76,6 +76,15 @@ def _review_progress(saved_scenes: Sequence[dict[str, Any]], total: int) -> tupl
     return approved, rejected
 
 
+def _priority_scene_numbers(proposals: dict, total: int, *, threshold: int = 60) -> list[int]:
+    """List unresolved/low-metadata-evidence scenes, without approving others."""
+    return [
+        number for number in range(1, total + 1)
+        if not proposals.get(number, {}).get("primary")
+        or proposals.get(number, {}).get("metadata_score", 0) < threshold
+    ]
+
+
 def render_editorial_panel(
     tasks: Sequence[dict[str, Any]],
     state_reader: Callable[[str], dict[str, Any] | None],
@@ -441,11 +450,7 @@ def render_editorial_panel(
             )
         scene_indexes = [chosen_scene]
     elif mode == "Só cenas sem sugestão ou com score baixo":
-        scene_indexes = [
-            number for number in range(1, len(scenes) + 1)
-            if not proposals.get(number, {}).get("primary")
-            or proposals.get(number, {}).get("metadata_score", 0) < 60
-        ]
+        scene_indexes = _priority_scene_numbers(proposals, len(scenes))
         st.caption(
             f"{len(scene_indexes)} cenas prioritárias para revisão. "
             "As demais também exigem validação de conteúdo e direitos "
