@@ -185,3 +185,31 @@ def test_no_fallback_for_access_denied(monkeypatch):
     assert len(attempts) == 1
     assert report["failure_count"] == 1
     assert report["diagnostics"][0]["code"] == "http_access_denied"
+
+
+def test_invalid_port_in_provider_variant_is_ignored():
+    candidate = _candidate(alternatives=[
+        {"url": "https://cdn.pixabay.com:notaport/video/111/small.mp4",
+         "width": 720, "height": 1280, "size_bytes": 200},
+    ])
+    assert discovery._candidate_download_variants(candidate) == [candidate.url]
+
+
+def test_fallback_not_counted_when_import_rejects_smaller_mp4(monkeypatch):
+    def download(url):
+        if url.endswith("large.mp4"):
+            raise discovery.StockDownloadError("video_too_large")
+        return b"0000ftyp0000good"
+
+    monkeypatch.setattr(discovery, "_download_stock_clip", download)
+    monkeypatch.setattr(
+        discovery, "import_editorial_material",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            ValueError("Arquivo MP4 inválido ou acima do limite de 64 MB.")
+        ),
+    )
+    report = _discover(monkeypatch, [_candidate()])
+    assert report["smaller_renditions_used"] == 0
+    assert report["oversized_primaries_recovered"] == 0
+    assert report["imported_count"] == 0
+    assert report["diagnostics"][0]["stage"] == "import"
