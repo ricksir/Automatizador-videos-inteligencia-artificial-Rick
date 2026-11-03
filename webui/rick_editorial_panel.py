@@ -26,6 +26,7 @@ from app.services.rick_visual_curation import (
     inspect_visual_scenes,
     retained_human_decisions,
     order_review_materials,
+    classify_review_materials,
 )
 
 
@@ -35,6 +36,18 @@ def _clear_scene_evidence(task_id: str, scene_number: int) -> None:
     st.session_state[f"rick_editorial_source_{task_id}_{scene_number}"] = ""
     st.session_state[f"rick_editorial_content_{task_id}_{scene_number}"] = False
     st.session_state[f"rick_editorial_rights_{task_id}_{scene_number}"] = False
+
+
+def _select_scene_material(task_id: str, scene_number: int, group: str) -> None:
+    """Only one material picker is active; all evidence must be reconfirmed."""
+    suffix = f"{task_id}_{scene_number}"
+    if group == "suggested":
+        st.session_state[f"rick_editorial_other_v1_{suffix}"] = None
+    elif group == "other":
+        st.session_state[f"rick_editorial_material_v4_{suffix}"] = None
+    else:
+        raise ValueError("Invalid editorial picker group")
+    _clear_scene_evidence(task_id, scene_number)
 
 
 def _go_to_scene(key: str, number: int) -> None:
@@ -321,16 +334,37 @@ def render_editorial_panel(
                 "Buscas alternativas (não executadas automaticamente): "
                 + " • ".join(triage["suggested_queries"])
             )
+            if triage["historical_image_search_url"]:
+                st.link_button(
+                    "Pesquisar retratos/documentos no Wikimedia Commons",
+                    triage["historical_image_search_url"],
+                    key=f"rick_editorial_commons_v1_{selected_id}_{idx}",
+                )
+                st.caption(
+                    "Confira a autenticidade e a licença de cada arquivo no Commons; "
+                    "a origem não garante autorização para seu uso."
+                )
             selected_default = (
                 old.get("assigned_material_file")
                 if old.get("editorial_review") == "approved_by_human" else None
             )
             if selected_default not in paths:
                 selected_default = None
-            ranked = order_review_materials(
+            groups = classify_review_materials(
                 scene, workspace["source_metadata"], choices,
+                historical_person=curation["subject_anchor"],
+            )
+            ranked = order_review_materials(
+                scene, workspace["source_metadata"], groups["suggested"],
             )
             review_choices = [None, *ranked]
+            if not ranked:
+                st.info("Nenhum material correspondente foi identificado para esta cena.")
+            else:
+                st.caption(
+                    "Materiais associados exclusivamente pela consulta registrada "
+                    "no manifesto. O conteúdo visual não foi verificado."
+                )
             with st.expander("Adicionar vídeo ou fotografia adequada (local)", expanded=False):
                 st.caption(
                     "Envie MP4 (até 64 MB) ou JPG/PNG (até 12 MB). Fotos são "
@@ -375,22 +409,69 @@ def render_editorial_panel(
             # The selector and playback MUST be outside st.form. Streamlit
             # otherwise defers both until Submit, causing the user to see
             # "no clip selected" even after selecting a valid file.
-            chosen = st.selectbox(
-                "1. Escolha o vídeo para assistir",
+            suggested_default = (
+                selected_default if selected_default in review_choices else None
+            )
+            suggested_choice = st.selectbox(
+                "1. Materiais sugeridos para esta cena (metadados)",
                 review_choices,
-                index=review_choices.index(selected_default),
+                index=review_choices.index(suggested_default),
                 format_func=describe_option,
-                on_change=_clear_scene_evidence,
-                args=(selected_id, idx),
+                on_change=_select_scene_material,
+                args=(selected_id, idx, "suggested"),
                 key=f"rick_editorial_material_v4_{selected_id}_{idx}",
             )
+            other_choice = None
+            with st.expander(
+                f"Outros materiais disponíveis na tarefa ({len(groups['other'])})",
+                expanded=False,
+            ):
+                st.caption(
+                    "Biblioteca opcional para inspeção humana. Estes arquivos NÃO "
+                    "possuem vínculo exato de busca com a cena e não são "
+                    "recomendações de adequação."
+                )
+                if groups["other"]:
+                    other_options = [None, *groups["other"]]
+                    other_default = (
+                        selected_default if selected_default in other_options else None
+                    )
+                    other_choice = st.selectbox(
+                        "Selecionar outro arquivo para inspeção",
+                        other_options,
+                        index=other_options.index(other_default),
+                        format_func=describe_option,
+                        on_change=_select_scene_material,
+                        args=(selected_id, idx, "other"),
+                        key=f"rick_editorial_other_v1_{selected_id}_{idx}",
+                    )
+                    if other_choice is not None:
+                        reason = groups["reasons"][other_choice]
+                        if reason == "historical_name_metadata_only":
+                            st.warning(
+                                "O nome histórico aparece somente nos metadados "
+                                "da busca original. Isso NÃO comprova que a pessoa "
+                                "esteja presente no vídeo."
+                            )
+                        else:
+                            st.caption(
+                                "Sem correspondência demonstrada por metadados "
+                                "com o conteúdo desta cena."
+                            )
+                else:
+                    st.caption("Nenhum outro arquivo está disponível nesta tarefa.")
+            chosen = other_choice if other_choice is not None else suggested_choice
             if chosen is not None:
                 source_path = paths[chosen]
                 provenance = workspace["source_metadata"].get(chosen, {})
                 st.caption(
                     "Fonte registrada: " + str(provenance.get("provider") or "não informada")
-                    + " • Página de origem: "
+                    + " • Página de origem / nota registrada: "
                     + str(provenance.get("source_page") or "não informada")
+                )
+                st.caption(
+                    "Condições de uso e conteúdo visual NÃO verificados automaticamente. "
+                    "A confirmação depende da revisão humana e da licença aplicável."
                 )
                 if st.button(
                     "Descartar este clipe de toda a tarefa",
