@@ -103,6 +103,84 @@ def test_commons_search_uses_fixed_host_and_rejects_unrelated_files(monkeypatch)
     assert seen[0][1]["allow_redirects"] is False
 
 
+def test_commons_exact_title_recovers_gramsci_public_domain(monkeypatch):
+    """When relevance search misses the portrait, direct title lookup recovers it."""
+    calls = []
+
+    class Response:
+        status_code = 200
+        content = b'{"query":{"pages":[]}}'
+
+        def __init__(self, pages):
+            self.pages = pages
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"query": {"pages": self.pages}}
+
+    def fake_get(url, **kwargs):
+        args = kwargs["params"]
+        calls.append(args)
+        if args.get("titles"):
+            assert "File:Gramsci.png" in args["titles"]
+            portrait = _candidate(
+                title="File:Gramsci.png",
+                url="https://upload.wikimedia.org/wikipedia/commons/1/1f/Gramsci.png",
+            )
+            portrait["imageinfo"][0]["descriptionurl"] = (
+                "https://commons.wikimedia.org/wiki/File:Gramsci.png"
+            )
+            portrait["imageinfo"][0]["mime"] = "image/png"
+            return Response([portrait])
+        return Response([_candidate(title="File:Via Gramsci.jpg")])
+
+    monkeypatch.setattr(commons.requests, "get", fake_get)
+    photos = commons.find_commons_stills("Gramsci")
+    assert [item["title"] for item in photos] == ["File:Gramsci.png"]
+    assert photos[0]["license"] == "Public domain"
+    assert photos[0]["identity_verified"] is False
+    assert photos[0]["license_legally_verified"] is False
+    assert len(calls) == 2
+    assert all(call.get("action") == "query" for call in calls)
+
+
+def test_commons_search_continues_when_first_page_has_no_eligible_image(monkeypatch):
+    calls = []
+
+    class Response:
+        status_code = 200
+        content = b'{"query":{"pages":[]}}'
+
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.data
+
+    def fake_get(url, **kwargs):
+        args = kwargs["params"]
+        calls.append(args)
+        if len(calls) == 1:
+            return Response({
+                "query": {"pages": [_candidate(title="File:Via Gramsci.jpg")]},
+                "continue": {"continue": "-||", "gsroffset": 50},
+            })
+        if len(calls) == 2:
+            return Response({"query": {"pages": [_candidate()]}})
+        return Response({"query": {"pages": []}})
+
+    monkeypatch.setattr(commons.requests, "get", fake_get)
+    photos = commons.find_commons_stills("Gramsci", max_results=1)
+    assert len(photos) == 1
+    assert calls[1]["gsroffset"] == 50
+    assert len(calls) == 2
+
+
 def test_commons_download_checks_actual_image(monkeypatch):
     image = Image.new("RGB", (16, 16))
     data = io.BytesIO()
