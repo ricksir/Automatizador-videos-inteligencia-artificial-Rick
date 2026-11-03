@@ -491,7 +491,8 @@ def test_editorial_ui_requires_explicit_video_choice_when_unverified():
     # Per-task/per-scene v4 key avoids reusing another scene's Streamlit selection.
     assert 'key=f"rick_editorial_material_v4_{selected_id}_{idx}"' in text
     assert "on_change=_select_scene_material" in text
-    assert "args=(selected_id, idx)" in text
+    assert 'args=(selected_id, idx, "suggested")' in text
+    assert 'args=(selected_id, idx, "other")' in text
     # Clip changes clear evidence before a fresh saved approval can be issued.
     assert text.index("suggested_choice = st.selectbox(") < text.index("with st.form(")
     assert "chosen is None or not note.strip()" in text
