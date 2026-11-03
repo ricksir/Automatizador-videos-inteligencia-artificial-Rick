@@ -11,7 +11,7 @@ import re
 import unicodedata
 from html import unescape
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import requests
 
@@ -58,6 +58,34 @@ def _trusted_url(url: str, *, media: bool) -> bool:
     return parsed.hostname == "commons.wikimedia.org" and parsed.path.startswith("/wiki/File:")
 
 
+def _canonical_media_url(url: str) -> str | None:
+    """Strip only Wikimedia's imageinfo attribution UTM parameters.
+
+    Commons currently adds ?utm_source=commons.wikimedia.org&... to the
+    original/thumbnail image URL. The query does not identify the file and
+    must NOT defeat our allowlisted-download policy. Unexpected query
+    parameters remain forbidden.
+    """
+    if not isinstance(url, str) or len(url) > 1800:
+        return None
+    try:
+        parsed = urlsplit(url)
+        query = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return None
+    valid_keys = {"utm_source", "utm_campaign", "utm_content"}
+    if query and (
+        len(query) > 3 or len({key for key, _ in query}) != len(query)
+        or any(key not in valid_keys for key, _ in query)
+        or any(len(value) > 80 for _, value in query)
+        or dict(query).get("utm_source") != "commons.wikimedia.org"
+        or dict(query).get("utm_campaign") != "imageinfo"
+    ):
+        return None
+    clean = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    return clean if _trusted_url(clean, media=True) else None
+
+
 def _eligible_image(page: dict, subject: str) -> dict | None:
     """Accept only filenames naming the subject and a strictly screened license."""
     if not isinstance(page, dict) or page.get("ns") != 6:
@@ -101,9 +129,11 @@ def _eligible_image(page: dict, subject: str) -> dict | None:
         pass
     else:
         return None
-    direct = info.get("thumburl") or info.get("url")
+    # The API may return a trusted file URL with its own attribution UTM
+    # query. Canonicalize it rather than treating it as an untrusted URL.
+    direct = _canonical_media_url(info.get("thumburl") or info.get("url"))
     page_url = info.get("descriptionurl")
-    if not _trusted_url(direct, media=True) or not _trusted_url(page_url, media=False):
+    if direct is None or not _trusted_url(page_url, media=False):
         return None
     return {
         "title": title,
