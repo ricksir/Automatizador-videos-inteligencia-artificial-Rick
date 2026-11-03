@@ -148,7 +148,7 @@ def export_auto_commons_video(
         # Rotation favors variety; the subject is named in each chosen file.
         item = imported[i % len(imported)]
         assigned.append({
-            **scene,
+            **{k: v for k, v in scene.items() if not k.startswith("editorial_")},
             "assigned_material_file": item["local_file"],
             "match_status": "term_match_unverified",
             "media_verified": False,
