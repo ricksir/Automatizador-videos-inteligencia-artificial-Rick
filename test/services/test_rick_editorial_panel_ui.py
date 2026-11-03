@@ -91,3 +91,27 @@ def test_unmatched_clips_are_only_shown_in_manual_expandable_library():
     assert 'chosen = other_choice if other_choice is not None else suggested_choice' in code
     assert code.index("chosen = other_choice") < code.index("with st.form(")
     assert "O nome histórico aparece somente nos metadados" in code
+
+
+def test_precuration_review_mode_prioritizes_unmatched_and_low_score():
+    proposals = {
+        1: {"primary": "portrait.mp4", "metadata_score": 90},
+        2: {"primary": None, "metadata_score": 0},
+        3: {"primary": "election.mp4", "metadata_score": 45},
+        4: {"primary": "book.mp4", "metadata_score": 75},
+    }
+    assert panel._priority_scene_numbers(proposals, 5) == [2, 3, 5]
+
+
+def test_precuration_is_displayed_without_marking_human_approval():
+    source = (Path(__file__).parents[2] / "webui" / "rick_editorial_panel.py").read_text(
+        encoding="utf-8"
+    )
+    assert "Rick — Pré-curadoria automática por cena" in source
+    assert "load_precuration(tasks_root, selected_id, workspace)" in source
+    assert "build_precuration(" in source
+    assert "run_scene_precuration(" in source
+    assert 'discover=True' in source
+    assert "proposed_primary = proposed.get(\"primary\")" in source
+    assert source.index("proposed_primary = proposed.get") < source.index("with st.form(")
+    assert "Só cenas sem sugestão ou com score baixo" in source
