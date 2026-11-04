@@ -157,8 +157,10 @@ def _valid_assessment(
         if (
             type(num) is not int or not first_scene <= num < first_scene + 6
             or num in seen or base.get(num) != row.get("file")
-            or row.get("file") not in paths
-            or row.get("status") not in allowed_statuses
+            or not isinstance(row.get("file"), str)
+            or row["file"] not in paths
+            or not isinstance(row.get("status"), str)
+            or row["status"] not in allowed_statuses
             or not isinstance(row.get("verdict"), str)
             or not isinstance(row.get("visual_relation"), str)
             or not isinstance(row.get("visible_evidence"), str)
@@ -233,19 +235,27 @@ def _valid_recovery(
         if (
             type(number) is not int or number not in targets
             or row.get("original_file") != originals[number]
-            or row.get("file") not in paths
+            or not isinstance(row.get("file"), str)
+            or row["file"] not in paths
+            or not isinstance(row.get("verdict"), str)
+            or not isinstance(row.get("visual_relation"), str)
+            or not isinstance(row.get("visible_evidence"), str)
         ):
             return False
     for row in recovery["ranking"]:
         if not isinstance(row, Mapping):
             return False
         number = row.get("scene_number")
+        suggested = row.get("suggested_file")
         if (
             type(number) is not int or number not in targets
             or (
-                row.get("suggested_file") is not None
-                and row["suggested_file"] not in paths
+                suggested is not None
+                and (not isinstance(suggested, str) or suggested not in paths)
             )
+            or not isinstance(row.get("status"), str)
+            or type(row.get("candidates_examined")) is not int
+            or type(row.get("direct_candidates")) is not int
         ):
             return False
     return True
