@@ -416,9 +416,8 @@ def render_editorial_panel(
                     "Configure abaixo uma chave Gemini e um modelo visual. "
                     "O Groq continuará sendo usado para gerar roteiros."
                 )
-            with st.expander(
+            with st.popover(
                 "Configurar IA visual — sem alterar o provedor de roteiros",
-                expanded=not (key_ready and model_name),
             ):
                 st.caption(
                     "A configuração é exclusiva do provedor Gemini. "
@@ -465,12 +464,12 @@ def render_editorial_panel(
                             st.info(
                                 "A atualização foi enfileirada e será salva "
                                 "quando a tarefa atual terminar. "
-                                "O provedor Groq permaneceu inalterado."
+                                "O provedor principal de roteiros permaneceu inalterado."
                             )
                         else:
                             st.success(
                                 "Configuração visual Gemini salva. "
-                                "O provedor Groq permaneceu inalterado."
+                                "O provedor principal de roteiros permaneceu inalterado."
                             )
                         st.rerun()
             choices = list(range(1, len(scenes) + 1, 6))
