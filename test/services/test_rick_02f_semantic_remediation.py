@@ -72,6 +72,7 @@ def _workspace(tmp_path, approved=False):
     return {
         "paths": paths,
         "preview": {"scenes": _scenes()},
+        "preview_sha256": "stable-mock-preview-fingerprint",
         "source_metadata": {
             "parliament.mp4": {
                 "search_term": "parliament government institutions",
