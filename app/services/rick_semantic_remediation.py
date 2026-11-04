@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
+import hashlib
+import json
 from pathlib import Path
 
 from app.services.rick_editorial_workspace import load_review_workspace
@@ -21,6 +23,16 @@ from app.services.rick_semantic_candidate_ranker import (
 
 _MAX_TARGETS = 3
 _MIN_METADATA_SCORE = 40
+
+
+def proposal_fingerprint(proposals: Mapping) -> str:
+    """Stable identifier for a source pre-curation set, not a content approval."""
+    if not isinstance(proposals, Mapping):
+        raise ValueError("Pré-curadoria inválida.")
+    encoded = json.dumps(
+        proposals, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _problem_scenes(
@@ -327,6 +339,9 @@ def run_semantic_remediation(
     rankings = rank_semantic_alternatives(comparisons, targets)
     return {
         "version": 1,
+        "model": model,
+        "source_preview_sha256": workspace["preview_sha256"],
+        "source_precuration_sha256": proposal_fingerprint(original_proposals),
         "targets": targets,
         "discovery": discovery,
         "compared": comparisons,
