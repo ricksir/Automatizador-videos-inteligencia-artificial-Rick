@@ -249,6 +249,7 @@ def discover_scene_media(
     priority_scene_numbers: Sequence[int] | None = None,
     search_variants: bool = False,
     search_context_photos: bool = False,
+    priority_only: bool = False,
 ) -> dict:
     """Import distinct candidates; never reimport the same provider asset."""
     if (
@@ -258,6 +259,7 @@ def discover_scene_media(
         or type(max_clips) is not int or not 0 <= max_clips <= 12
         or type(search_variants) is not bool
         or type(search_context_photos) is not bool
+        or type(priority_only) is not bool
     ):
         raise ValueError("Solicitação de descoberta editorial inválida.")
     if priority_scene_numbers is not None and (
@@ -268,7 +270,7 @@ def discover_scene_media(
     ):
         raise ValueError("Lista de cenas prioritárias inválida.")
     priority = list(dict.fromkeys(priority_scene_numbers or []))
-    ordered = priority + [
+    ordered = priority if priority_only else priority + [
         idx for idx in range(1, len(scenes) + 1) if idx not in priority
     ]
     existing = {
@@ -284,7 +286,7 @@ def discover_scene_media(
     # In the contextual mode reserve most of the photo budget for
     # unresolved scene topics, rather than filling it with portraits.
     portrait_limit = min(max_stills, 2) if search_context_photos else max_stills
-    if person and portrait_limit:
+    if person and portrait_limit and (not priority_only or 1 in priority):
         try:
             photos = find_commons_stills(person, max_results=portrait_limit)
         except (RuntimeError, ValueError) as exc:
