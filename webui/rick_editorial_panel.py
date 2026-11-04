@@ -400,13 +400,15 @@ def render_editorial_panel(
             # A visual reviewer may use Gemini while scripts remain on Groq.
             # Configure the two existing Gemini-specific keys independently,
             # without touching app.llm_provider or the Groq credentials/model.
-            snapshot = config.snapshot_config_with_pending(config.app)
-            key_ready = bool(str(snapshot.get("gemini_api_key") or "").strip())
-            model_name = str(snapshot.get("gemini_model_name") or "").strip()
-            available_visual_models = [
-                "gemini-3.5-flash-lite",
-                "gemini-3.8-flash",
-            ]
+            from app.services.rick_visual_settings import (
+                save_visual_gemini_settings,
+                visual_gemini_snapshot,
+                RECOMMENDED_MODELS,
+            )
+            visual_settings = visual_gemini_snapshot()
+            key_ready = visual_settings["key_configured"]
+            model_name = visual_settings["model"]
+            available_visual_models = list(RECOMMENDED_MODELS)
             if model_name and model_name not in available_visual_models:
                 available_visual_models.append(model_name)
             if not key_ready or not model_name:
@@ -452,21 +454,24 @@ def render_editorial_panel(
                         "Salvar configuração da IA visual"
                     )
                 if save_visual:
-                    secret = visual_key.strip()
-                    if not secret and not key_ready:
-                        st.error("Informe uma chave Gemini válida para habilitar.")
+                    try:
+                        result = save_visual_gemini_settings(
+                            visual_key, visual_model,
+                        )
+                    except ValueError as error:
+                        st.error(str(error))
                     else:
-                        changes = {"gemini_model_name": visual_model}
-                        if secret:
-                            changes["gemini_api_key"] = secret
-                        config.update_config_values_nonblocking(
-                            config.app, changes,
-                        )
-                        config.try_save_config()
-                        st.success(
-                            "Configuração Gemini registrada. "
-                            "O provedor de roteiros permaneceu inalterado."
-                        )
+                        if result["status"] == "queued_for_save":
+                            st.info(
+                                "A atualização foi enfileirada e será salva "
+                                "quando a tarefa atual terminar. "
+                                "O provedor Groq permaneceu inalterado."
+                            )
+                        else:
+                            st.success(
+                                "Configuração visual Gemini salva. "
+                                "O provedor Groq permaneceu inalterado."
+                            )
                         st.rerun()
             choices = list(range(1, len(scenes) + 1, 6))
             first_scene = st.selectbox(
@@ -516,6 +521,8 @@ def render_editorial_panel(
             stored = st.session_state.get(
                 f"rick_ai_visual_result_{selected_id}_{first_scene}"
             )
+            if isinstance(stored, dict) and stored.get("model") != model_name:
+                stored = None
             if isinstance(stored, dict):
                 st.caption(
                     f"{stored.get('assessed', 0)} avaliações retornadas "
