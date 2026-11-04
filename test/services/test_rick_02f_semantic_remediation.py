@@ -297,3 +297,63 @@ def test_ui_contains_single_action_and_never_permits_publication():
     assert "run_semantic_remediation(" in source
     assert "disabled=not (authorized and key_ready and model_name)" in source
     assert "Nenhuma substituição ou aprovação foi realizada" in source
+
+
+def test_strict_discovery_never_searches_other_scenes(monkeypatch):
+    from app.services import rick_scene_discovery
+
+    requests = []
+    monkeypatch.setattr(
+        rick_scene_discovery, "_stock_provider",
+        lambda: ("pixabay", lambda query, *_: requests.append(query) or []),
+    )
+    spoken = [
+        {"text": "Um parlamento reuniu os deputados"},
+        {"text": "As eleições ocorreram por votação em urna"},
+        {"text": "Manifestantes protestaram na rua"},
+    ]
+    result = rick_scene_discovery.discover_scene_media(
+        "/not-used", "task", subject="política",
+        scenes=spoken, source_metadata={}, max_stills=0,
+        max_clips=2, priority_scene_numbers=[2], priority_only=True,
+    )
+    assert requests == ["elections voting ballot people"]
+    assert result["priority_scene_numbers"] == [2]
+    assert result["imported_count"] == 0
+
+
+def test_strict_discovery_with_empty_priority_makes_no_requests(monkeypatch):
+    from app.services import rick_scene_discovery
+
+    monkeypatch.setattr(
+        rick_scene_discovery, "_stock_provider",
+        lambda: ("pixabay", lambda *a: pytest.fail("Should not search")),
+    )
+    result = rick_scene_discovery.discover_scene_media(
+        "/not-used", "task", subject="política",
+        scenes=[{"text": "As eleições ocorreram"}],
+        source_metadata={}, max_stills=0, max_clips=2,
+        priority_scene_numbers=[], priority_only=True,
+    )
+    assert result["search_requests"] == 0
+
+
+def test_legacy_discovery_behavior_remains_explicitly_non_strict(monkeypatch):
+    from app.services import rick_scene_discovery
+
+    requests = []
+    monkeypatch.setattr(
+        rick_scene_discovery, "_stock_provider",
+        lambda: ("pixabay", lambda query, *_: requests.append(query) or []),
+    )
+    rick_scene_discovery.discover_scene_media(
+        "/not-used", "task", subject="política",
+        scenes=[
+            {"text": "Parlamento com representantes"},
+            {"text": "As eleições ocorreram"},
+        ],
+        source_metadata={}, max_stills=0, max_clips=2,
+        priority_scene_numbers=[2],
+    )
+    assert "elections voting ballot people" in requests
+    assert "parliament government institutions" in requests
