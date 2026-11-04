@@ -207,4 +207,5 @@ jobs:
           test/services/test_rick_02f_semantic_remediation.py
           test/services/test_rick_02g_semantic_retry.py
           test/services/test_rick_02h_semantic_ranking.py
+          test/services/test_rick_02j_recovery_batches.py
           test/services/test_rick_visual_settings.py
