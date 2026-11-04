@@ -86,6 +86,7 @@ def _candidate_alternatives(
     subject: str,
     targets: list[int],
     excluded_by_scene: Mapping[int, set[str]] | None = None,
+    prior_uses: Mapping[str, int] | None = None,
 ) -> tuple[dict[int, dict], list[dict]]:
     """Pick one *new-to-this-scene* alternative per target, metadata only.
 
@@ -99,7 +100,7 @@ def _candidate_alternatives(
         item["scene_number"]: item for item in original_proposals["scenes"]
         if isinstance(item, Mapping) and type(item.get("scene_number")) is int
     }
-    reserved: Counter[str] = Counter()
+    reserved: Counter[str] = Counter(prior_uses or {})
     candidate_map: dict[int, dict] = {}
     misses: list[dict] = []
     for number in targets:
@@ -228,12 +229,14 @@ def run_semantic_remediation(
     for attempt in range(1, max_candidates_per_scene + 1):
         if not second_pass_targets:
             break
+        already_used = Counter(row["file"] for row in comparisons)
         candidates, misses = _candidate_alternatives(
             workspace,
             original_proposals=original_proposals,
             subject=subject,
             targets=second_pass_targets,
             excluded_by_scene=evaluated_names,
+            prior_uses=already_used,
         )
         unresolved.extend(misses)
         if not candidates:
