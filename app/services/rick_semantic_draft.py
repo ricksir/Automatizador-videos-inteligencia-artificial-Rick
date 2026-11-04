@@ -11,7 +11,7 @@ import json
 import math
 import os
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from uuid import uuid4
 
