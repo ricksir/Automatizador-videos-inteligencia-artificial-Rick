@@ -482,6 +482,30 @@ def render_editorial_panel(
                 "possível consumo de cota ou cobrança.",
                 key=f"rick_ai_visual_consent_{selected_id}",
             )
+            from app.services.rick_semantic_session_store import (
+                load_semantic_batch,
+                record_semantic_assessment,
+                record_semantic_recovery,
+            )
+            visual_key = f"rick_ai_visual_result_{selected_id}_{first_scene}"
+            history_key = f"rick_ai_fix_history_{selected_id}_{first_scene}"
+            # Local restoration does not require permission, API credentials
+            # or a network request. Model/scene fingerprints are validated.
+            if model_name:
+                try:
+                    restored = load_semantic_batch(
+                        tasks_root, selected_id, first_scene=first_scene,
+                        workspace=workspace, proposals=precure, model=model_name,
+                    )
+                except (ValueError, OSError):
+                    restored = {"assessment": None, "history": {}}
+                if isinstance(restored["assessment"], dict):
+                    st.session_state[visual_key] = restored["assessment"]
+                    st.session_state[history_key] = restored["history"]
+                    st.caption(
+                        "Avaliação e histórico restaurados do armazenamento "
+                        "local da tarefa, sem novas chamadas Gemini."
+                    )
             if st.button(
                 "Analisar este lote com IA visual",
                 disabled=not (authorized and key_ready and model_name),
@@ -510,22 +534,30 @@ def render_editorial_panel(
                             + type(exc).__name__
                         )
                     else:
-                        st.session_state[
-                            f"rick_ai_visual_result_{selected_id}_{first_scene}"
-                        ] = semantic
-                        # A new baseline evaluation invalidates any earlier
-                        # alternative-comparison results in this same batch.
+                        st.session_state[visual_key] = semantic
+                        # A new baseline evaluation invalidates old comparisons.
                         st.session_state.pop(
                             f"rick_ai_fix_result_{selected_id}_{first_scene}",
                             None,
                         )
-                        st.session_state.pop(
-                            f"rick_ai_fix_history_{selected_id}_{first_scene}",
-                            None,
-                        )
-            stored = st.session_state.get(
-                f"rick_ai_visual_result_{selected_id}_{first_scene}"
-            )
+                        st.session_state.pop(history_key, None)
+                        try:
+                            record_semantic_assessment(
+                                tasks_root, selected_id, first_scene=first_scene,
+                                workspace=workspace, proposals=precure,
+                                model=model_name, assessment=semantic,
+                            )
+                        except (ValueError, OSError) as exc:
+                            st.warning(
+                                "A análise está visível nesta sessão, mas não "
+                                "foi salva para retomada: " + type(exc).__name__
+                            )
+                        else:
+                            st.success(
+                                "Análise Gemini registrada localmente. "
+                                "Reabrir o Streamlit não consome outra chamada."
+                            )
+            stored = st.session_state.get(visual_key)
             if isinstance(stored, dict) and (
                 stored.get("model") != model_name
                 or stored.get("version") != 2
@@ -618,18 +650,26 @@ def render_editorial_panel(
                                     + type(exc).__name__
                                 )
                             else:
-                                st.session_state[
-                                    f"rick_ai_visual_result_{selected_id}_{first_scene}"
-                                ] = merged
+                                st.session_state[visual_key] = merged
                                 st.session_state.pop(
                                     f"rick_ai_fix_result_{selected_id}_{first_scene}",
                                     None,
                                 )
-                                st.session_state.pop(
-                                    f"rick_ai_fix_history_{selected_id}_{first_scene}",
-                                    None,
-                                )
-                                st.rerun()
+                                st.session_state.pop(history_key, None)
+                                try:
+                                    record_semantic_assessment(
+                                        tasks_root, selected_id,
+                                        first_scene=first_scene,
+                                        workspace=workspace, proposals=precure,
+                                        model=model_name, assessment=merged,
+                                    )
+                                except (ValueError, OSError) as exc:
+                                    st.warning(
+                                        "Reavaliação disponível nesta sessão, "
+                                        "mas não foi salva: " + type(exc).__name__
+                                    )
+                                else:
+                                    st.rerun()
                 direct = sum(
                     r.get("verdict") == "plausible" and
                     r.get("visual_relation") == "direct"
@@ -707,7 +747,7 @@ def render_editorial_panel(
                         f"{len(problematic)} cena(s) sinalizada(s) neste lote. "
                         "O Rick divide as cenas em grupos de até três, "
                         "evita repetir grupos já processados e mantém os "
-                        "resultados de cada grupo na sessão. "
+                        "resultados válidos no armazenamento local da tarefa. "
                         "Pode fazer downloads e consumir chamadas Gemini."
                     )
                     alternatives_per_scene = st.selectbox(
@@ -729,9 +769,6 @@ def render_editorial_panel(
                         tuple(numbers_to_recover[i:i + 3])
                         for i in range(0, len(numbers_to_recover), 3)
                     ]
-                    history_key = (
-                        f"rick_ai_fix_history_{selected_id}_{first_scene}"
-                    )
                     stored_history = st.session_state.get(history_key)
                     history = (
                         dict(stored_history)
@@ -808,18 +845,45 @@ def render_editorial_panel(
                                         + type(exc).__name__
                                     )
                                 else:
-                                    # Keep past groups instead of overwriting
-                                    # the last group on each button click.
-                                    history[group_id(selected_group)] = fixed
-                                    st.session_state[history_key] = history
-                                    st.session_state[
-                                        f"rick_ai_fix_result_{selected_id}_{first_scene}"
-                                    ] = fixed
-                                    st.rerun()
+                                    # Refresh task inventory: discovery has
+                                    # added files since workspace was loaded.
+                                    try:
+                                        fresh_workspace = load_review_workspace(
+                                            tasks_root, selected_id, media_paths,
+                                            audio_duration=state.get(
+                                                "audio_duration"
+                                            ),
+                                            cache_dir=utils.storage_dir(
+                                                "cache_videos"
+                                            ),
+                                        )
+                                        persisted = record_semantic_recovery(
+                                            tasks_root, selected_id,
+                                            first_scene=first_scene,
+                                            workspace=fresh_workspace,
+                                            proposals=precure, model=model_name,
+                                            recovery=fixed,
+                                        )
+                                    except (ValueError, OSError) as exc:
+                                        history[group_id(selected_group)] = fixed
+                                        st.session_state[history_key] = history
+                                        st.warning(
+                                            "Alternativas disponíveis somente "
+                                            "na sessão atual: " + type(exc).__name__
+                                            + ". Evite reiniciar antes de revisar."
+                                        )
+                                    else:
+                                        st.session_state[history_key] = (
+                                            persisted["history"]
+                                        )
+                                        st.session_state[
+                                            f"rick_ai_fix_result_{selected_id}_{first_scene}"
+                                        ] = fixed
+                                        st.rerun()
                     else:
                         st.success(
                             "Todos os grupos sinalizados foram processados "
-                            "nesta sessão. Consulte os resultados abaixo; "
+                            "no histórico local desta tarefa. Consulte abaixo; "
                             "isso NÃO significa que todas as mídias sejam adequadas."
                         )
                     for group in recovery_groups:

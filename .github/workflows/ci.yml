@@ -209,4 +209,5 @@ jobs:
           test/services/test_rick_02h_semantic_ranking.py
           test/services/test_rick_02j_recovery_batches.py
           test/services/test_rick_02k_semantic_draft.py
+          test/services/test_rick_02l_semantic_persistence.py
           test/services/test_rick_visual_settings.py
