@@ -255,7 +255,7 @@ def review_scene_frames(
                         contents=[prompt, *parts],
                         config=types.GenerateContentConfig(
                             response_mime_type="application/json",
-                            max_output_tokens=350,
+                            max_output_tokens=500,
                         ),
                     )
                     result = _parse_assessment(getattr(response, "text", None))
