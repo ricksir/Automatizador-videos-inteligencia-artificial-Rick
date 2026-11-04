@@ -9,6 +9,7 @@ import pytest
 
 from app.services.rick_editorial_workspace import load_review_workspace
 from app.services.rick_semantic_remediation import proposal_fingerprint
+from app.services.rick_semantic_draft import build_semantic_draft_assignments
 from app.services.rick_semantic_session_store import (
     load_semantic_batch,
     record_semantic_assessment,
@@ -126,6 +127,22 @@ def test_round_trip_reopens_both_analysis_and_alternatives(tmp_path):
     assert reopened["history"]["1"]["compared"][0]["visual_relation"] == "direct"
     assert reopened["history"]["1"]["discovery"]["imported_count"] == 1
     assert (folder / "rick_semantic_batch_01.json").is_file()
+
+
+def test_restored_evidence_can_build_safe_semantic_mp4_draft(tmp_path):
+    root, _, _, kwargs, assessment, recovery = _fixture(tmp_path)
+    _save_base(root, kwargs, assessment)
+    _recover(root, kwargs, recovery)
+    restored = _load(root, kwargs)
+    draft = build_semantic_draft_assignments(
+        kwargs["workspace"], kwargs["proposals"], restored["history"],
+    )
+    assert draft["recommended_scenes"] == [1]
+    assert draft["fallback_scenes"] == [2]
+    assert [
+        row["assigned_material_file"] for row in draft["scenes"]
+    ] == ["alternative.mp4", "original2.mp4"]
+    assert draft["publishing_permitted"] is False
 
 
 def test_only_whitelisted_evidence_is_saved_without_credential(tmp_path):
