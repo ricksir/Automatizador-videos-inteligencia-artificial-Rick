@@ -301,7 +301,10 @@ def _mark_task_failed(
     # return value used by the CLI. These fields are reset before a new attempt.
     failure_details = {
         key: existing_task[key]
-        for key in ("videos", "combined_videos", "warnings", "failed_video_index")
+        for key in (
+            "videos", "combined_videos", "warnings",
+            "failed_video_index", "rick_quality",
+        )
         if existing_task and key in existing_task
     }
     failure_details.update({
