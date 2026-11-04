@@ -545,6 +545,83 @@ def render_editorial_panel(
                     if isinstance(row, dict)
                     and current.get(row.get("scene_number")) == row.get("file")
                 ]
+                # An API/JSON failure is NOT an editorial assessment.
+                # Offer an explicit low-cost retry only for failed scenes.
+                from app.services.rick_semantic_retry import (
+                    failed_scene_numbers, merge_failed_scene_retry,
+                )
+
+                failed_rows = [
+                    r for r in records
+                    if r.get("status") == "provider_or_response_failure"
+                ]
+                if failed_rows:
+                    api_failed = sum(
+                        r.get("failure_stage") == "api_request"
+                        for r in failed_rows
+                    )
+                    format_failed = sum(
+                        r.get("failure_stage") == "invalid_model_response"
+                        for r in failed_rows
+                    )
+                    st.warning(
+                        f"{len(failed_rows)} cena(s) sem avaliação válida "
+                        f"(falha na API: {api_failed}; resposta inválida: "
+                        f"{format_failed}; causa não classificada: "
+                        f"{len(failed_rows) - api_failed - format_failed}). "
+                        "Essas cenas NÃO foram consideradas incertas por análise "
+                        "de imagem: a avaliação não foi concluída."
+                    )
+                    st.caption(
+                        "É possível reexecutar somente as cenas com falha. "
+                        "Isso fará até uma chamada adicional por cena e "
+                        "poderá consumir cota ou gerar cobrança."
+                    )
+                    if st.button(
+                        "Reexecutar apenas cenas sem avaliação válida",
+                        disabled=not (authorized and key_ready and model_name),
+                        key=f"rick_ai_visual_retry_{selected_id}_{first_scene}",
+                    ):
+                        from app.services.rick_semantic_frame_review import (
+                            review_scene_frames,
+                        )
+
+                        failed = failed_scene_numbers({"results": failed_rows})
+                        with st.spinner("Reavaliando somente as cenas com falha..."):
+                            try:
+                                retried = review_scene_frames(
+                                    precure, paths,
+                                    subject=str(
+                                        by_id[selected_id].get("subject") or ""
+                                    ),
+                                    api_key=str(
+                                        config.snapshot_config_with_pending(
+                                            config.app
+                                        ).get("gemini_api_key") or ""
+                                    ),
+                                    model=model_name,
+                                    consent=authorized,
+                                    first_scene=first_scene,
+                                    max_scenes=len(failed),
+                                    only_scene_numbers=failed,
+                                )
+                                merged = merge_failed_scene_retry(
+                                    stored, retried,
+                                )
+                            except (ValueError, OSError, RuntimeError) as exc:
+                                st.error(
+                                    "Nova tentativa indisponível: "
+                                    + type(exc).__name__
+                                )
+                            else:
+                                st.session_state[
+                                    f"rick_ai_visual_result_{selected_id}_{first_scene}"
+                                ] = merged
+                                st.session_state.pop(
+                                    f"rick_ai_fix_result_{selected_id}_{first_scene}",
+                                    None,
+                                )
+                                st.rerun()
                 direct = sum(
                     r.get("verdict") == "plausible" and
                     r.get("visual_relation") == "direct"
