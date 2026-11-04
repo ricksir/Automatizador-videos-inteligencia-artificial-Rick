@@ -132,6 +132,9 @@ def _valid_assessment(
         not isinstance(value, Mapping)
         or value.get("version") != 2
         or value.get("model") != model
+        or value.get("human_approved", False) is not False
+        or value.get("publishing_permitted", False) is not False
+        or value.get("rights_verified", False) is not False
         or not isinstance(value.get("results"), list)
         or not 1 <= len(value["results"]) <= 6
         or not isinstance(proposals.get("scenes"), list)
@@ -179,6 +182,8 @@ def _valid_recovery(
         not isinstance(recovery, Mapping)
         or recovery.get("version") != 1
         or recovery.get("model") != model
+        or recovery.get("human_approved", False) is not False
+        or recovery.get("publishing_permitted", False) is not False
         or recovery.get("source_preview_sha256")
         != workspace.get("preview_sha256")
         or recovery.get("source_precuration_sha256")
@@ -254,6 +259,9 @@ def _valid_recovery(
                 and (not isinstance(suggested, str) or suggested not in paths)
             )
             or not isinstance(row.get("status"), str)
+            or row.get("auto_selection_permitted", False) is not False
+            or row.get("publishing_permitted", False) is not False
+            or row.get("human_approved", False) is not False
             or type(row.get("candidates_examined")) is not int
             or type(row.get("direct_candidates")) is not int
         ):
