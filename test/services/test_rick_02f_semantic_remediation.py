@@ -297,6 +297,8 @@ def test_ui_contains_single_action_and_never_permits_publication():
     assert "run_semantic_remediation(" in source
     assert "disabled=not (authorized and key_ready and model_name)" in source
     assert "Nenhuma substituição ou aprovação foi realizada" in source
+    assert 'st.session_state.pop(' in source
+    assert 'f"rick_ai_fix_result_{selected_id}_{first_scene}"' in source
 
 
 def test_strict_discovery_never_searches_other_scenes(monkeypatch):
