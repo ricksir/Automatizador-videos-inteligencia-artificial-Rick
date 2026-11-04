@@ -125,7 +125,8 @@ def _clean_recovery(recovery: Mapping) -> dict:
 
 
 def _valid_assessment(
-    value: object, *, proposals: Mapping, model: str, first_scene: int,
+    value: object, *, proposals: Mapping, workspace: Mapping,
+    model: str, first_scene: int,
 ) -> bool:
     if (
         not isinstance(value, Mapping)
@@ -141,6 +142,13 @@ def _valid_assessment(
         for row in proposals["scenes"]
         if isinstance(row, Mapping)
     }
+    paths = workspace.get("paths")
+    if not isinstance(paths, Mapping):
+        return False
+    allowed_statuses = {
+        "ai_assessment_for_human_review", "provider_or_response_failure",
+        "frames_unavailable", "invalid_local_media", "not_evaluated",
+    }
     seen: set[int] = set()
     for row in value["results"]:
         if not isinstance(row, Mapping):
@@ -149,7 +157,12 @@ def _valid_assessment(
         if (
             type(num) is not int or not first_scene <= num < first_scene + 6
             or num in seen or base.get(num) != row.get("file")
-            or not isinstance(row.get("status"), str)
+            or row.get("file") not in paths
+            or row.get("status") not in allowed_statuses
+            or not isinstance(row.get("verdict"), str)
+            or not isinstance(row.get("visual_relation"), str)
+            or not isinstance(row.get("visible_evidence"), str)
+            or not isinstance(row.get("reason"), str)
         ):
             return False
         seen.add(num)
@@ -265,7 +278,8 @@ def load_semantic_batch(
         or any(contents.get(key) != value for key, value in identity.items())
         or not _valid_assessment(
             contents.get("assessment"),
-            proposals=proposals, model=model, first_scene=first_scene,
+            proposals=proposals, workspace=workspace,
+            model=model, first_scene=first_scene,
         )
     ):
         return empty
@@ -330,7 +344,8 @@ def record_semantic_assessment(
         raise ValueError("Avaliação Gemini inválida.")
     clean = _clean_assessment(assessment)
     if not _valid_assessment(
-        clean, proposals=proposals, model=model, first_scene=first_scene,
+        clean, proposals=proposals, workspace=workspace,
+        model=model, first_scene=first_scene,
     ):
         raise ValueError("Avaliação Gemini não corresponde à cena atual.")
     path = _file(tasks_root, task_id, first_scene)
