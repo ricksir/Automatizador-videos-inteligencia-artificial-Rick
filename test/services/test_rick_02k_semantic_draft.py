@@ -183,6 +183,39 @@ def test_source_outside_group_rejected(tmp_path):
         build_semantic_draft_assignments(workspace, proposals, results)
 
 
+def test_repeated_group_cannot_override_or_hide_previous_result(tmp_path):
+    _, _, _, workspace, proposals, results = _sample(tmp_path)
+    results["duplicate"] = deepcopy(results["1"])
+    with pytest.raises(ValueError, match="Identificação de grupo"):
+        build_semantic_draft_assignments(workspace, proposals, results)
+
+
+def test_different_gemini_models_cannot_be_mixed(tmp_path):
+    _, _, _, workspace, proposals, results = _sample(tmp_path)
+    second = deepcopy(results["1"])
+    second["targets"] = [2]
+    second["model"] = "some-other-model"
+    second["ranking"] = [{
+        "scene_number": 2, "suggested_file": None,
+        "status": "sem_correspondencia_direta_demonstrada",
+    }]
+    second["compared"] = []
+    results["2"] = second
+    with pytest.raises(ValueError, match="modelos Gemini diferentes"):
+        build_semantic_draft_assignments(workspace, proposals, results)
+
+
+def test_repeated_scene_across_groups_is_blocked(tmp_path):
+    _, _, _, workspace, proposals, results = _sample(tmp_path)
+    second = deepcopy(results["1"])
+    second["targets"] = [1, 2]
+    second["ranking"] = []
+    second["compared"] = []
+    results["1,2"] = second
+    with pytest.raises(ValueError, match="Comparações repetidas"):
+        build_semantic_draft_assignments(workspace, proposals, results)
+
+
 def test_no_missing_subtitles_silent_fallback(tmp_path, monkeypatch):
     root, folder, cache, _, proposals, results = _sample(tmp_path)
     manifest = json.loads((folder / "script.json").read_text(encoding="utf-8"))
