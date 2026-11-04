@@ -516,7 +516,12 @@ def render_editorial_panel(
             stored = st.session_state.get(
                 f"rick_ai_visual_result_{selected_id}_{first_scene}"
             )
-            if isinstance(stored, dict) and stored.get("model") != model_name:
+            if isinstance(stored, dict) and (
+                stored.get("model") != model_name
+                or stored.get("version") != 2
+            ):
+                # Old, permissive assessments must never be displayed as if
+                # they had passed the stronger semantic-context policy.
                 stored = None
             if isinstance(stored, dict):
                 st.caption(
@@ -534,17 +539,59 @@ def render_editorial_panel(
                     if isinstance(row, dict)
                     and current.get(row.get("scene_number")) == row.get("file")
                 ]
+                direct = sum(
+                    r.get("verdict") == "plausible" and
+                    r.get("visual_relation") == "direct"
+                    for r in records
+                )
+                metaphorical = sum(
+                    r.get("visual_relation") == "metaphorical"
+                    for r in records
+                )
+                st.caption(
+                    f"{direct} correspondência(s) direta(s) plausível(is); "
+                    f"{metaphorical} associação(ões) metafórica(s). "
+                    "Nenhuma classificação gera aprovação automática."
+                )
                 st.dataframe([
                     {
                         "Cena": row["scene_number"],
                         "Arquivo": row["file"],
-                        "Avaliação": row["verdict"],
-                        "Evidência observada": row["visible_evidence"],
+                        "Veredito IA": row["verdict"],
+                        "Relação": row.get("visual_relation", "insufficient"),
+                        "Próximo passo": row.get("recommended_action", ""),
+                        "Evidência": row["visible_evidence"],
                         "Motivo": row["reason"],
-                        "Estado": row["status"],
                     }
                     for row in records
                 ], hide_index=True, use_container_width=True)
+                if records:
+                    numbers = [r["scene_number"] for r in records]
+                    focus = st.selectbox(
+                        "Ler a análise completa da cena",
+                        numbers,
+                        format_func=lambda n: f"Cena {n}",
+                        key=f"rick_ai_visual_detail_{selected_id}_{first_scene}",
+                    )
+                    detail = next(
+                        (r for r in records if r["scene_number"] == focus), None,
+                    )
+                    if detail is not None:
+                        st.markdown(
+                            f"**Relação:** {detail.get('visual_relation', 'insufficient')} "
+                            f"— **Veredito:** {detail['verdict']}"
+                        )
+                        st.markdown("**Evidência observada**")
+                        st.write(detail.get("visible_evidence") or "Não disponível")
+                        st.markdown("**Justificativa**")
+                        st.write(detail.get("reason") or "Não disponível")
+                        st.caption(
+                            "Encaminhamento sugerido: "
+                            + detail.get(
+                                "recommended_action",
+                                "inspecionar_e_buscar_alternativa",
+                            )
+                        )
                 if len(records) < len(stored.get("results", [])):
                     st.warning(
                         "Algumas propostas mudaram após a análise. "
