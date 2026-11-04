@@ -287,6 +287,24 @@ def test_corrupted_row_schema_is_not_loaded_into_streamlit(tmp_path):
     assert restored["history"] == {}
 
 
+def test_persisted_record_cannot_claim_human_approval_or_publication(tmp_path):
+    root, folder, _, kwargs, assessment, recovery = _fixture(tmp_path)
+    _save_base(root, kwargs, assessment)
+    _recover(root, kwargs, recovery)
+    path = folder / "rick_semantic_batch_01.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["history"]["1"]["ranking"][0]["publishing_permitted"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    restored = _load(root, kwargs)
+    assert restored["assessment"] is not None
+    assert restored["history"] == {}
+
+    payload["history"] = {}
+    payload["assessment"]["human_approved"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert _load(root, kwargs) == {"assessment": None, "history": {}}
+
+
 def test_recovery_cannot_be_recorded_without_assessment(tmp_path):
     root, _, _, kwargs, _, recovery = _fixture(tmp_path)
     with pytest.raises(ValueError, match="Salve primeiro"):
