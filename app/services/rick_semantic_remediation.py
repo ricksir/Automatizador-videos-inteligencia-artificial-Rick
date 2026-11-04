@@ -152,6 +152,7 @@ def run_semantic_remediation(
     discover: bool = True,
     max_scenes: int = 3,
     max_candidates_per_scene: int = 1,
+    target_scene_numbers: list[int] | None = None,
 ) -> dict:
     """Search and re-evaluate up to 3 problematic scenes on a direct click.
 
@@ -174,6 +175,16 @@ def run_semantic_remediation(
         or type(max_scenes) is not int or not 1 <= max_scenes <= _MAX_TARGETS
         or type(max_candidates_per_scene) is not int
         or not 1 <= max_candidates_per_scene <= 2
+        or (
+            target_scene_numbers is not None
+            and (
+                not isinstance(target_scene_numbers, list)
+                or not 1 <= len(target_scene_numbers) <= max_scenes
+                or any(type(n) is not int or not 1 <= n <= 60
+                       for n in target_scene_numbers)
+                or len(set(target_scene_numbers)) != len(target_scene_numbers)
+            )
+        )
     ):
         raise ValueError("Dados de recuperação semântica inválidos.")
 
@@ -195,11 +206,22 @@ def run_semantic_remediation(
     ):
         raise ValueError("Pré-curadoria desatualizada: atualize a tarefa.")
 
-    targets = _problem_scenes(
+    eligible = _problem_scenes(
         semantic_assessment, original_proposals,
         model=model, saved_review=workspace["saved_review"],
-        max_scenes=max_scenes,
+        max_scenes=6,
     )
+    if target_scene_numbers is not None:
+        # Prevent a caller from requesting a scene not marked as
+        # problematic or an approved / stale candidate.
+        if any(number not in eligible for number in target_scene_numbers):
+            raise ValueError(
+                "Cenas solicitadas não estão elegíveis para recuperação."
+            )
+        targets = list(target_scene_numbers)
+    else:
+        # Legacy callers still process the first three problem scenes.
+        targets = eligible[:max_scenes]
     discovery = None
     if discover and targets:
         from app.services.rick_scene_discovery import discover_scene_media
