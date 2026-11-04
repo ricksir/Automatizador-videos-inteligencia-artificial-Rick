@@ -26,11 +26,28 @@ _MIN_METADATA_SCORE = 40
 
 
 def proposal_fingerprint(proposals: Mapping) -> str:
-    """Stable identifier for a source pre-curation set, not a content approval."""
-    if not isinstance(proposals, Mapping):
+    """Fingerprint ONLY scene identity, text and primary asset.
+
+    Search diagnostics and volatile metadata may change after downloading
+    alternatives; they must not invalidate an otherwise identical baseline.
+    Replacing any original scene media or editing its text MUST invalidate.
+    """
+    if (
+        not isinstance(proposals, Mapping)
+        or not isinstance(proposals.get("scenes"), list)
+    ):
         raise ValueError("Pré-curadoria inválida.")
+    scenes = []
+    for row in proposals["scenes"]:
+        if not isinstance(row, Mapping):
+            raise ValueError("Cena de pré-curadoria inválida.")
+        scenes.append({
+            "scene_number": row.get("scene_number"),
+            "text": row.get("text"),
+            "primary": row.get("primary"),
+        })
     encoded = json.dumps(
-        proposals, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+        scenes, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
