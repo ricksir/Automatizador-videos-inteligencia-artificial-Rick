@@ -194,7 +194,6 @@ def review_scene_frames(
                         model=model.strip(),
                         contents=[prompt, *parts],
                         config=types.GenerateContentConfig(
-                            temperature=0,
                             response_mime_type="application/json",
                             max_output_tokens=350,
                         ),

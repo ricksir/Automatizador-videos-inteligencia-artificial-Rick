@@ -202,3 +202,5 @@ jobs:
           test/services/test_rick_02c_context_photos.py
           test/services/test_rick_02d_visual_media_audit.py
           test/services/test_rick_02d_semantic_frame_review.py
+          test/services/test_rick_visual_settings.py
+          test/services/test_rick_visual_settings.py
