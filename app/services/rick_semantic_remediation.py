@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
+import hashlib
+import json
 from pathlib import Path
 
 from app.services.rick_editorial_workspace import load_review_workspace
@@ -21,6 +23,33 @@ from app.services.rick_semantic_candidate_ranker import (
 
 _MAX_TARGETS = 3
 _MIN_METADATA_SCORE = 40
+
+
+def proposal_fingerprint(proposals: Mapping) -> str:
+    """Fingerprint ONLY scene identity, text and primary asset.
+
+    Search diagnostics and volatile metadata may change after downloading
+    alternatives; they must not invalidate an otherwise identical baseline.
+    Replacing any original scene media or editing its text MUST invalidate.
+    """
+    if (
+        not isinstance(proposals, Mapping)
+        or not isinstance(proposals.get("scenes"), list)
+    ):
+        raise ValueError("Pré-curadoria inválida.")
+    scenes = []
+    for row in proposals["scenes"]:
+        if not isinstance(row, Mapping):
+            raise ValueError("Cena de pré-curadoria inválida.")
+        scenes.append({
+            "scene_number": row.get("scene_number"),
+            "text": row.get("text"),
+            "primary": row.get("primary"),
+        })
+    encoded = json.dumps(
+        scenes, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _problem_scenes(
@@ -327,6 +356,9 @@ def run_semantic_remediation(
     rankings = rank_semantic_alternatives(comparisons, targets)
     return {
         "version": 1,
+        "model": model,
+        "source_preview_sha256": workspace["preview_sha256"],
+        "source_precuration_sha256": proposal_fingerprint(original_proposals),
         "targets": targets,
         "discovery": discovery,
         "compared": comparisons,

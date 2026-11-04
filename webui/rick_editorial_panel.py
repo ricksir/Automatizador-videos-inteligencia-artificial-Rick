@@ -905,6 +905,103 @@ def render_editorial_panel(
                             "use a seleção e revisão editorial abaixo. "
                             "Conferência de imagem e direitos continua obrigatória."
                         )
+                    if history:
+                        # Streamlit expanders cannot be nested. The Gemini
+                        # assessment is already inside an expander.
+                        with st.container(border=True):
+                            st.markdown(
+                                "**Rick — Montar prévia semântica em MP4 (rascunho)**"
+                            )
+                            st.warning(
+                                "RASCUNHO NÃO HOMOLOGADO: substitui somente as "
+                                "cenas com alternativa visual direta plausível "
+                                "segundo o Gemini. Todas as demais mantêm o "
+                                "clipe original, que pode não corresponder "
+                                "à fala. Não publique esta prévia."
+                            )
+                            st.caption(
+                                "Utiliza apenas vídeos já registrados na tarefa, "
+                                "o áudio local existente e os intervalos estimados. "
+                                "Nenhuma busca externa, chamada Gemini ou nova "
+                                "aprovação é feita nesta exportação. "
+                                "O vídeo original e a revisão humana ficam intactos."
+                            )
+                            skip_subtitles = st.checkbox(
+                                "Gerar rascunho sem legendas (se necessário)",
+                                key=(
+                                    f"rick_semantic_draft_nosubs_"
+                                    f"{selected_id}_{first_scene}"
+                                ),
+                            )
+                            confirmed_draft = st.checkbox(
+                                "Confirmo que esta é apenas uma prévia local "
+                                "com cenas ainda não validadas",
+                                key=(
+                                    f"rick_semantic_draft_confirm_"
+                                    f"{selected_id}_{first_scene}"
+                                ),
+                            )
+                            if st.button(
+                                "Gerar MP4 de prévia semântica",
+                                disabled=not confirmed_draft,
+                                key=(
+                                    f"rick_semantic_draft_start_"
+                                    f"{selected_id}_{first_scene}"
+                                ),
+                            ):
+                                from app.services.rick_semantic_draft import (
+                                    export_semantic_draft,
+                                )
+
+                                with st.spinner(
+                                    "Montando prévia semântica em arquivo separado..."
+                                ):
+                                    try:
+                                        draft = export_semantic_draft(
+                                            tasks_root, selected_id,
+                                            state_materials=media_paths,
+                                            cache_dir=utils.storage_dir(
+                                                "cache_videos"
+                                            ),
+                                            original_proposals=precure,
+                                            recovery_history=history,
+                                            without_subtitles=skip_subtitles,
+                                        )
+                                    except (ValueError, OSError, RuntimeError) as exc:
+                                        st.error(
+                                            "Prévia não gerada: " + str(exc)
+                                        )
+                                    else:
+                                        st.session_state[
+                                            f"rick_semantic_draft_last_"
+                                            f"{selected_id}_{first_scene}"
+                                        ] = draft
+                            previous_draft = st.session_state.get(
+                                f"rick_semantic_draft_last_"
+                                f"{selected_id}_{first_scene}"
+                            )
+                            if isinstance(previous_draft, dict):
+                                import pathlib
+
+                                output_name = previous_draft.get("output")
+                                if (
+                                    isinstance(output_name, str)
+                                    and pathlib.Path(output_name).is_file()
+                                ):
+                                    st.success(
+                                        f"Prévia pronta: "
+                                        f"{previous_draft['recommended_count']} "
+                                        "cena(s) com indicação visual direta da IA; "
+                                        f"{previous_draft['fallback_count']} "
+                                        "cena(s) com mídia de metadados ainda não "
+                                        "validada. Nenhum vídeo foi publicado."
+                                    )
+                                    st.video(output_name)
+                                    st.code(output_name)
+                                    st.caption(
+                                        "Relatório de cenas e ressalvas: "
+                                        + str(previous_draft.get("report") or "")
+                                    )
         if isinstance(precure.get("discovery"), dict):
             discovery = precure["discovery"]
             st.caption(
