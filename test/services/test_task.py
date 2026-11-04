@@ -1593,6 +1593,29 @@ class TestTaskService(unittest.TestCase):
             "RuntimeError: provider connection reset",
         )
 
+    def test_failed_task_preserves_quality_in_return_and_state(self):
+        """CLI and task store must agree about diagnostics after failure."""
+        state = MemoryState()
+        diagnostics = {
+            "script_estimate": {
+                "message": "Duração estimada fora do limite",
+                "approved": False,
+            },
+        }
+        state.update_task(
+            "failed-quality", state=tm.const.TASK_STATE_PROCESSING,
+            progress=35, rick_quality=diagnostics,
+            videos=[], warnings=None,
+        )
+        with patch.object(tm.sm, "state", state):
+            result = tm._mark_task_failed(
+                "failed-quality", "video", "Falha de renderização",
+            )
+        self.assertEqual(result, state.get_task("failed-quality"))
+        self.assertEqual(result["rick_quality"], diagnostics)
+        self.assertEqual(result["progress"], 35)
+        self.assertEqual(result["failed_stage"], "video")
+
     def test_start_generates_youtube_metadata_for_each_cross_post(self):
         """
         自动发布到 YouTube 时只生成一次元数据，但要把同一份字段传给每个
