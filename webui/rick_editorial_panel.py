@@ -397,13 +397,77 @@ def render_editorial_panel(
                 "Pode consumir sua cota ou gerar cobranças. Nenhuma mídia é "
                 "enviada sem seu consentimento e um clique explícito."
             )
-            key_ready = bool(str(config.app.get("gemini_api_key") or "").strip())
-            model_name = str(config.app.get("gemini_model_name") or "").strip()
+            # A visual reviewer may use Gemini while scripts remain on Groq.
+            # Configure the two existing Gemini-specific keys independently,
+            # without touching app.llm_provider or the Groq credentials/model.
+            snapshot = config.snapshot_config_with_pending(config.app)
+            key_ready = bool(str(snapshot.get("gemini_api_key") or "").strip())
+            model_name = str(snapshot.get("gemini_model_name") or "").strip()
+            available_visual_models = [
+                "gemini-3.5-flash-lite",
+                "gemini-3.8-flash",
+            ]
+            if model_name and model_name not in available_visual_models:
+                available_visual_models.append(model_name)
             if not key_ready or not model_name:
                 st.warning(
-                    "Configure a chave Gemini e um modelo multimodal "
-                    "compatível nas configurações do programa para habilitar."
+                    "Configure abaixo uma chave Gemini e um modelo visual. "
+                    "O Groq continuará sendo usado para gerar roteiros."
                 )
+            with st.expander(
+                "Configurar IA visual — sem alterar o provedor de roteiros",
+                expanded=not (key_ready and model_name),
+            ):
+                st.caption(
+                    "A configuração é exclusiva do provedor Gemini. "
+                    "Salvar credenciais não consulta a API nem envia vídeos. "
+                    "A análise de quadros continua exigindo autorização e clique."
+                )
+                with st.form(
+                    key=f"rick_visual_gemini_settings_{selected_id}",
+                    clear_on_submit=True,
+                ):
+                    visual_key = st.text_input(
+                        "Chave API Gemini (Google AI Studio)",
+                        value="",
+                        type="password",
+                        placeholder=(
+                            "Chave já configurada — deixe vazio para manter"
+                            if key_ready else "Cole aqui sua chave Gemini"
+                        ),
+                        key=f"rick_visual_gemini_key_{selected_id}",
+                    )
+                    model_default = model_name or "gemini-3.5-flash-lite"
+                    visual_model = st.selectbox(
+                        "Modelo para comparar imagens com a narração",
+                        options=available_visual_models,
+                        index=available_visual_models.index(model_default),
+                        key=f"rick_visual_gemini_model_{selected_id}",
+                        help=(
+                            "Flash-Lite prioriza custo; Flash prioriza desempenho. "
+                            "O acesso depende dos modelos disponíveis na sua conta."
+                        ),
+                    )
+                    save_visual = st.form_submit_button(
+                        "Salvar configuração da IA visual"
+                    )
+                if save_visual:
+                    secret = visual_key.strip()
+                    if not secret and not key_ready:
+                        st.error("Informe uma chave Gemini válida para habilitar.")
+                    else:
+                        changes = {"gemini_model_name": visual_model}
+                        if secret:
+                            changes["gemini_api_key"] = secret
+                        config.update_config_values_nonblocking(
+                            config.app, changes,
+                        )
+                        config.try_save_config()
+                        st.success(
+                            "Configuração Gemini registrada. "
+                            "O provedor de roteiros permaneceu inalterado."
+                        )
+                        st.rerun()
             choices = list(range(1, len(scenes) + 1, 6))
             first_scene = st.selectbox(
                 "Lote de cenas para analisar", choices,
@@ -430,7 +494,11 @@ def render_editorial_panel(
                         semantic = review_scene_frames(
                             precure, paths,
                             subject=str(by_id[selected_id].get("subject") or ""),
-                            api_key=str(config.app.get("gemini_api_key") or ""),
+                            api_key=str(
+                                config.snapshot_config_with_pending(config.app).get(
+                                    "gemini_api_key"
+                                ) or ""
+                            ),
                             model=model_name,
                             consent=authorized,
                             max_scenes=6,
