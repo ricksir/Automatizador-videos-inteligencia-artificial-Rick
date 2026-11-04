@@ -513,6 +513,12 @@ def render_editorial_panel(
                         st.session_state[
                             f"rick_ai_visual_result_{selected_id}_{first_scene}"
                         ] = semantic
+                        # A new baseline evaluation invalidates any earlier
+                        # alternative-comparison results in this same batch.
+                        st.session_state.pop(
+                            f"rick_ai_fix_result_{selected_id}_{first_scene}",
+                            None,
+                        )
             stored = st.session_state.get(
                 f"rick_ai_visual_result_{selected_id}_{first_scene}"
             )
