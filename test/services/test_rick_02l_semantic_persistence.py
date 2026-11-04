@@ -240,6 +240,36 @@ def test_corrupt_oversized_and_symlinked_history_are_ignored(tmp_path):
         _save_base(root, kwargs, assessment)
 
 
+def test_missing_original_media_invalidates_entire_assessment(tmp_path):
+    root, _, cache, kwargs, assessment, _ = _fixture(tmp_path)
+    _save_base(root, kwargs, assessment)
+    (cache / "original1.mp4").unlink()
+    updated_ws = load_review_workspace(root, "t123", [], cache_dir=cache)
+    assert _load(
+        root, {**kwargs, "workspace": updated_ws}
+    ) == {"assessment": None, "history": {}}
+
+
+def test_corrupted_row_schema_is_not_loaded_into_streamlit(tmp_path):
+    root, folder, _, kwargs, assessment, recovery = _fixture(tmp_path)
+    _save_base(root, kwargs, assessment)
+    _recover(root, kwargs, recovery)
+    path = folder / "rick_semantic_batch_01.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["assessment"]["results"][0]["status"] = ["not-a-string"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert _load(root, kwargs)["assessment"] is None
+
+    _save_base(root, kwargs, assessment)
+    _recover(root, kwargs, recovery)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["history"]["1"]["ranking"][0]["suggested_file"] = ["bad-list"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    restored = _load(root, kwargs)
+    assert restored["assessment"] is not None
+    assert restored["history"] == {}
+
+
 def test_recovery_cannot_be_recorded_without_assessment(tmp_path):
     root, _, _, kwargs, _, recovery = _fixture(tmp_path)
     with pytest.raises(ValueError, match="Salve primeiro"):
