@@ -151,6 +151,10 @@ class TestMaterialSearchCache(unittest.TestCase):
         """
         cache_path = self._cache_path()
         cache_path.write_text("{invalid-json", encoding="utf-8")
+        # Windows file timestamps may round ahead of time.time().
+        # Pin the clock just past the file mtime to exercise JSON corruption,
+        # rather than the unrelated future-dated-cache invalidation path.
+        stable_now = cache_path.stat().st_mtime + 1
 
         with patch("app.services.material_cache.logger.warning") as warning:
             loaded = material_cache.load_material_search_cache(
@@ -158,6 +162,7 @@ class TestMaterialSearchCache(unittest.TestCase):
                 search_term="nature",
                 minimum_duration=5,
                 video_aspect=VideoAspect.portrait,
+                now=stable_now,
             )
 
         self.assertIsNone(loaded)
