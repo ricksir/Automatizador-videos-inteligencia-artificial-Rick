@@ -519,6 +519,10 @@ def render_editorial_panel(
                             f"rick_ai_fix_result_{selected_id}_{first_scene}",
                             None,
                         )
+                        st.session_state.pop(
+                            f"rick_ai_fix_history_{selected_id}_{first_scene}",
+                            None,
+                        )
             stored = st.session_state.get(
                 f"rick_ai_visual_result_{selected_id}_{first_scene}"
             )
@@ -621,6 +625,10 @@ def render_editorial_panel(
                                     f"rick_ai_fix_result_{selected_id}_{first_scene}",
                                     None,
                                 )
+                                st.session_state.pop(
+                                    f"rick_ai_fix_history_{selected_id}_{first_scene}",
+                                    None,
+                                )
                                 st.rerun()
                 direct = sum(
                     r.get("verdict") == "plausible" and
@@ -697,9 +705,9 @@ def render_editorial_panel(
                     st.markdown("**Rick — Encontrar e testar alternativas**")
                     st.caption(
                         f"{len(problematic)} cena(s) sinalizada(s) neste lote. "
-                        "Uma ação procura novas fotos/vídeos somente para "
-                        "até três cenas, compara as alternativas pelo conteúdo "
-                        "visual e mantém as propostas atuais inalteradas. "
+                        "O Rick divide as cenas em grupos de até três, "
+                        "evita repetir grupos já processados e mantém os "
+                        "resultados de cada grupo na sessão. "
                         "Pode fazer downloads e consumir chamadas Gemini."
                     )
                     alternatives_per_scene = st.selectbox(
@@ -708,62 +716,121 @@ def render_editorial_panel(
                         index=1,
                         key=f"rick_ai_fix_depth_{selected_id}_{first_scene}",
                         help=(
-                            "1 = até 3 chamadas adicionais; 2 = até 6. "
-                            "Se a primeira alternativa tiver relação direta, "
-                            "a segunda não precisa ser avaliada. "
+                            "1 = até 3 chamadas adicionais por grupo; "
+                            "2 = até 6. A segunda só é testada se a "
+                            "primeira não tiver relação direta plausível. "
                             "Nenhuma escolha é aplicada automaticamente."
                         ),
                     )
+                    numbers_to_recover = [
+                        row["scene_number"] for row in problematic
+                    ]
+                    recovery_groups = [
+                        tuple(numbers_to_recover[i:i + 3])
+                        for i in range(0, len(numbers_to_recover), 3)
+                    ]
+                    history_key = (
+                        f"rick_ai_fix_history_{selected_id}_{first_scene}"
+                    )
+                    stored_history = st.session_state.get(history_key)
+                    history = (
+                        dict(stored_history)
+                        if isinstance(stored_history, dict) else {}
+                    )
+                    def group_id(group):
+                        return ",".join(str(n) for n in group)
+                    pending_groups = [
+                        group for group in recovery_groups
+                        if group_id(group) not in history
+                    ]
                     st.caption(
-                        f"Limite desta execução: até "
-                        f"{min(3, len(problematic)) * alternatives_per_scene} "
-                        "chamadas adicionais, sujeitas à cota/cobrança da API."
+                        f"Grupos processados: "
+                        f"{len(recovery_groups) - len(pending_groups)}"
+                        f"/{len(recovery_groups)}. "
+                        "Um grupo processado não é sinônimo de mídia adequada."
                     )
-                    if st.button(
-                        "Buscar alternativas e reavaliar até 3 cenas com IA",
-                        disabled=not (authorized and key_ready and model_name),
-                        key=f"rick_ai_fix_start_{selected_id}_{first_scene}",
-                    ):
-                        from app.services.rick_semantic_remediation import (
-                            run_semantic_remediation,
+                    if pending_groups:
+                        selected_group = st.selectbox(
+                            "Próximo grupo de cenas a recuperar",
+                            options=pending_groups,
+                            format_func=lambda group: (
+                                "Cenas " + ", ".join(map(str, group))
+                            ),
+                            key=(
+                                f"rick_ai_fix_group_{selected_id}_"
+                                f"{first_scene}_{len(history)}"
+                            ),
                         )
-
-                        with st.spinner(
-                            "Buscando alternativas limitadas e avaliando os quadros..."
+                        max_extra_calls = (
+                            len(selected_group) * alternatives_per_scene
+                        )
+                        st.caption(
+                            f"Limite para este grupo: até {max_extra_calls} "
+                            "chamada(s) Gemini; pode consumir cota "
+                            "ou gerar cobrança."
+                        )
+                        if st.button(
+                            "Buscar alternativas e reavaliar até 3 cenas com IA",
+                            disabled=not (authorized and key_ready and model_name),
+                            key=f"rick_ai_fix_start_{selected_id}_{first_scene}",
                         ):
-                            try:
-                                fixed = run_semantic_remediation(
-                                    tasks_root, selected_id, media_paths,
-                                    original_proposals=precure,
-                                    semantic_assessment=stored,
-                                    subject=str(
-                                        by_id[selected_id].get("subject") or ""
-                                    ),
-                                    api_key=str(
-                                        config.snapshot_config_with_pending(
-                                            config.app
-                                        ).get("gemini_api_key") or ""
-                                    ),
-                                    model=model_name,
-                                    consent=authorized,
-                                    audio_duration=state.get("audio_duration"),
-                                    cache_dir=utils.storage_dir("cache_videos"),
-                                    max_scenes=3,
-                                    max_candidates_per_scene=alternatives_per_scene,
-                                )
-                            except (ValueError, OSError, RuntimeError) as exc:
-                                st.error(
-                                    "Busca e reavaliação bloqueadas: "
-                                    + type(exc).__name__
-                                )
-                            else:
-                                st.session_state[
-                                    f"rick_ai_fix_result_{selected_id}_{first_scene}"
-                                ] = fixed
-                    recovered = st.session_state.get(
-                        f"rick_ai_fix_result_{selected_id}_{first_scene}"
-                    )
-                    if isinstance(recovered, dict):
+                            from app.services.rick_semantic_remediation import (
+                                run_semantic_remediation,
+                            )
+
+                            with st.spinner(
+                                "Buscando alternativas e avaliando quadros..."
+                            ):
+                                try:
+                                    fixed = run_semantic_remediation(
+                                        tasks_root, selected_id, media_paths,
+                                        original_proposals=precure,
+                                        semantic_assessment=stored,
+                                        subject=str(
+                                            by_id[selected_id].get("subject") or ""
+                                        ),
+                                        api_key=str(
+                                            config.snapshot_config_with_pending(
+                                                config.app
+                                            ).get("gemini_api_key") or ""
+                                        ),
+                                        model=model_name,
+                                        consent=authorized,
+                                        audio_duration=state.get("audio_duration"),
+                                        cache_dir=utils.storage_dir("cache_videos"),
+                                        max_scenes=3,
+                                        max_candidates_per_scene=alternatives_per_scene,
+                                        target_scene_numbers=list(selected_group),
+                                    )
+                                except (ValueError, OSError, RuntimeError) as exc:
+                                    st.error(
+                                        "Busca e reavaliação bloqueadas: "
+                                        + type(exc).__name__
+                                    )
+                                else:
+                                    # Keep past groups instead of overwriting
+                                    # the last group on each button click.
+                                    history[group_id(selected_group)] = fixed
+                                    st.session_state[history_key] = history
+                                    st.session_state[
+                                        f"rick_ai_fix_result_{selected_id}_{first_scene}"
+                                    ] = fixed
+                                    st.rerun()
+                    else:
+                        st.success(
+                            "Todos os grupos sinalizados foram processados "
+                            "nesta sessão. Consulte os resultados abaixo; "
+                            "isso NÃO significa que todas as mídias sejam adequadas."
+                        )
+                    for group in recovery_groups:
+                        recovered = history.get(group_id(group))
+                        if not isinstance(recovered, dict):
+                            continue
+                        st.markdown(
+                            "**Resultado das cenas "
+                            + ", ".join(map(str, group))
+                            + "**"
+                        )
                         new_files = recovered.get("discovery") or {}
                         st.caption(
                             f"Busca: {new_files.get('imported_count', 0)} arquivo(s) "
