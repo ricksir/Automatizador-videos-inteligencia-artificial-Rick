@@ -698,10 +698,26 @@ def render_editorial_panel(
                     st.caption(
                         f"{len(problematic)} cena(s) sinalizada(s) neste lote. "
                         "Uma ação procura novas fotos/vídeos somente para "
-                        "até três cenas, reavalia um candidato por cena no "
-                        "Gemini e mantém a proposta atual inalterada. "
-                        "Pode fazer downloads e consumir até três chamadas "
-                        "adicionais da API, mediante autorização."
+                        "até três cenas, compara as alternativas pelo conteúdo "
+                        "visual e mantém as propostas atuais inalteradas. "
+                        "Pode fazer downloads e consumir chamadas Gemini."
+                    )
+                    alternatives_per_scene = st.selectbox(
+                        "Máximo de alternativas por cena",
+                        options=[1, 2],
+                        index=1,
+                        key=f"rick_ai_fix_depth_{selected_id}_{first_scene}",
+                        help=(
+                            "1 = até 3 chamadas adicionais; 2 = até 6. "
+                            "Se a primeira alternativa tiver relação direta, "
+                            "a segunda não precisa ser avaliada. "
+                            "Nenhuma escolha é aplicada automaticamente."
+                        ),
+                    )
+                    st.caption(
+                        f"Limite desta execução: até "
+                        f"{min(3, len(problematic)) * alternatives_per_scene} "
+                        "chamadas adicionais, sujeitas à cota/cobrança da API."
                     )
                     if st.button(
                         "Buscar alternativas e reavaliar até 3 cenas com IA",
@@ -733,6 +749,7 @@ def render_editorial_panel(
                                     audio_duration=state.get("audio_duration"),
                                     cache_dir=utils.storage_dir("cache_videos"),
                                     max_scenes=3,
+                                    max_candidates_per_scene=alternatives_per_scene,
                                 )
                             except (ValueError, OSError, RuntimeError) as exc:
                                 st.error(
@@ -765,16 +782,45 @@ def render_editorial_panel(
                             st.dataframe([
                                 {
                                     "Cena": r["scene_number"],
+                                    "Tentativa": r.get("candidate_order", 1),
                                     "Atual": r["original_file"],
                                     "Alternativa": r["file"],
                                     "Relação": r.get("visual_relation"),
                                     "Veredito IA": r["verdict"],
-                                    "Ação recomendada": r.get("recommended_action"),
                                     "Evidência": r.get("visible_evidence"),
                                     "Origem": r.get("source_page"),
                                 }
                                 for r in replacements
                             ], hide_index=True, use_container_width=True)
+                        ranking = [
+                            row for row in recovered.get("ranking", [])
+                            if isinstance(row, dict)
+                            and row.get("scene_number") in current
+                        ]
+                        if ranking:
+                            st.markdown(
+                                "**Comparação semântica — indicação para revisão humana**"
+                            )
+                            st.dataframe([
+                                {
+                                    "Cena": row["scene_number"],
+                                    "Alternativas avaliadas": row["candidates_examined"],
+                                    "Correspondências diretas (IA)": row["direct_candidates"],
+                                    "Indicação da IA": (
+                                        row.get("suggested_file")
+                                        or "Sem alternativa direta comprovada"
+                                    ),
+                                    "Estado": row["status"],
+                                }
+                                for row in ranking
+                            ], hide_index=True, use_container_width=True)
+                            st.caption(
+                                "A sugestão somente aparece quando o Gemini "
+                                "observou uma correspondência visual direta. "
+                                "Não comprova identidade histórica, licença, "
+                                "alinhamento temporal ou autorização de uso. "
+                                "O arquivo atual continua selecionado."
+                            )
                         if recovered.get("unresolved"):
                             st.warning(
                                 f"{len(recovered['unresolved'])} cena(s) "
