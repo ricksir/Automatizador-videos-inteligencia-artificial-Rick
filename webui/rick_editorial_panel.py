@@ -513,6 +513,12 @@ def render_editorial_panel(
                         st.session_state[
                             f"rick_ai_visual_result_{selected_id}_{first_scene}"
                         ] = semantic
+                        # A new baseline evaluation invalidates any earlier
+                        # alternative-comparison results in this same batch.
+                        st.session_state.pop(
+                            f"rick_ai_fix_result_{selected_id}_{first_scene}",
+                            None,
+                        )
             stored = st.session_state.get(
                 f"rick_ai_visual_result_{selected_id}_{first_scene}"
             )
@@ -602,6 +608,113 @@ def render_editorial_panel(
                     "de pessoas, precisão histórica, licença, direitos de "
                     "uso ou alinhamento temporal. Nenhuma cena foi aprovada."
                 )
+                problematic = [
+                    r for r in records
+                    if r.get("status") == "ai_assessment_for_human_review"
+                    and not (
+                        r.get("verdict") == "plausible"
+                        and r.get("visual_relation") == "direct"
+                    )
+                ]
+                if problematic:
+                    st.markdown("**Rick — Encontrar e testar alternativas**")
+                    st.caption(
+                        f"{len(problematic)} cena(s) sinalizada(s) neste lote. "
+                        "Uma ação procura novas fotos/vídeos somente para "
+                        "até três cenas, reavalia um candidato por cena no "
+                        "Gemini e mantém a proposta atual inalterada. "
+                        "Pode fazer downloads e consumir até três chamadas "
+                        "adicionais da API, mediante autorização."
+                    )
+                    if st.button(
+                        "Buscar alternativas e reavaliar até 3 cenas com IA",
+                        disabled=not (authorized and key_ready and model_name),
+                        key=f"rick_ai_fix_start_{selected_id}_{first_scene}",
+                    ):
+                        from app.services.rick_semantic_remediation import (
+                            run_semantic_remediation,
+                        )
+
+                        with st.spinner(
+                            "Buscando alternativas limitadas e avaliando os quadros..."
+                        ):
+                            try:
+                                fixed = run_semantic_remediation(
+                                    tasks_root, selected_id, media_paths,
+                                    original_proposals=precure,
+                                    semantic_assessment=stored,
+                                    subject=str(
+                                        by_id[selected_id].get("subject") or ""
+                                    ),
+                                    api_key=str(
+                                        config.snapshot_config_with_pending(
+                                            config.app
+                                        ).get("gemini_api_key") or ""
+                                    ),
+                                    model=model_name,
+                                    consent=authorized,
+                                    audio_duration=state.get("audio_duration"),
+                                    cache_dir=utils.storage_dir("cache_videos"),
+                                    max_scenes=3,
+                                )
+                            except (ValueError, OSError, RuntimeError) as exc:
+                                st.error(
+                                    "Busca e reavaliação bloqueadas: "
+                                    + type(exc).__name__
+                                )
+                            else:
+                                st.session_state[
+                                    f"rick_ai_fix_result_{selected_id}_{first_scene}"
+                                ] = fixed
+                    recovered = st.session_state.get(
+                        f"rick_ai_fix_result_{selected_id}_{first_scene}"
+                    )
+                    if isinstance(recovered, dict):
+                        new_files = recovered.get("discovery") or {}
+                        st.caption(
+                            f"Busca: {new_files.get('imported_count', 0)} arquivo(s) "
+                            f"importado(s); {len(recovered.get('compared', []))} "
+                            f"alternativa(s) examinada(s), "
+                            f"{recovered.get('api_requests', 0)} chamada(s) Gemini. "
+                            "Nenhuma substituição ou aprovação foi realizada."
+                        )
+                        replacements = [
+                            r for r in recovered.get("compared", [])
+                            if isinstance(r, dict)
+                            and current.get(r.get("scene_number")) ==
+                            r.get("original_file")
+                        ]
+                        if replacements:
+                            st.dataframe([
+                                {
+                                    "Cena": r["scene_number"],
+                                    "Atual": r["original_file"],
+                                    "Alternativa": r["file"],
+                                    "Relação": r.get("visual_relation"),
+                                    "Veredito IA": r["verdict"],
+                                    "Ação recomendada": r.get("recommended_action"),
+                                    "Evidência": r.get("visible_evidence"),
+                                    "Origem": r.get("source_page"),
+                                }
+                                for r in replacements
+                            ], hide_index=True, use_container_width=True)
+                        if recovered.get("unresolved"):
+                            st.warning(
+                                f"{len(recovered['unresolved'])} cena(s) "
+                                "continuam sem alternativa com metadados "
+                                "suficientes; não foram preenchidas artificialmente."
+                            )
+                        if not replacements and recovered.get("compared"):
+                            st.warning(
+                                "As propostas principais mudaram. "
+                                "Reavalie o lote antes de usar resultados anteriores."
+                            )
+                        st.info(
+                            "As alternativas foram adicionadas apenas ao "
+                            "inventário da tarefa. Para mudar uma cena, "
+                            "use a seleção e revisão editorial abaixo. "
+                            "Conferência de imagem e direitos continua obrigatória."
+                        )
         if isinstance(precure.get("discovery"), dict):
             discovery = precure["discovery"]
             st.caption(

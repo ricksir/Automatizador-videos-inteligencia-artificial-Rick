@@ -204,4 +204,5 @@ jobs:
           test/services/test_rick_02d_semantic_frame_review.py
           test/services/test_rick_visual_settings.py
           test/services/test_rick_02e_semantic_rigor.py
+          test/services/test_rick_02f_semantic_remediation.py
           test/services/test_rick_visual_settings.py
