@@ -906,10 +906,12 @@ def render_editorial_panel(
                             "Conferência de imagem e direitos continua obrigatória."
                         )
                     if history:
-                        with st.expander(
-                            "Rick — Montar prévia semântica em MP4 (rascunho)",
-                            expanded=False,
-                        ):
+                        # Streamlit expanders cannot be nested. The Gemini
+                        # assessment is already inside an expander.
+                        with st.container(border=True):
+                            st.markdown(
+                                "**Rick — Montar prévia semântica em MP4 (rascunho)**"
+                            )
                             st.warning(
                                 "RASCUNHO NÃO HOMOLOGADO: substitui somente as "
                                 "cenas com alternativa visual direta plausível "
