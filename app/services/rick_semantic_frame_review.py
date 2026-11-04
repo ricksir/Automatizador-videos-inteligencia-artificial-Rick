@@ -130,6 +130,7 @@ def review_scene_frames(
     consent: bool = False,
     max_scenes: int = 6,
     first_scene: int = 1,
+    only_scene_numbers: list[int] | None = None,
 ) -> dict:
     """Inspect a maximum of 6 scene proposals through Gemini, opt-in only.
 
@@ -146,6 +147,16 @@ def review_scene_frames(
         or not isinstance(model, str) or not model.strip() or len(model) > 100
         or type(max_scenes) is not int or not 1 <= max_scenes <= _MAX_SCENES
         or type(first_scene) is not int or not 1 <= first_scene <= 60
+        or (
+            only_scene_numbers is not None
+            and (
+                not isinstance(only_scene_numbers, list)
+                or not 1 <= len(only_scene_numbers) <= max_scenes
+                or any(type(n) is not int or n < 1 or n > 60
+                       for n in only_scene_numbers)
+                or len(set(only_scene_numbers)) != len(only_scene_numbers)
+            )
+        )
     ):
         raise ValueError("semantic_review_configuration_invalid")
 
@@ -153,6 +164,7 @@ def review_scene_frames(
     if not isinstance(scenes, list) or len(scenes) > 60:
         raise ValueError("semantic_review_scenes_invalid")
 
+    wanted = set(only_scene_numbers) if only_scene_numbers is not None else None
     jobs: list[dict] = []
     for scene in scenes:
         if not isinstance(scene, Mapping):
@@ -162,6 +174,7 @@ def review_scene_frames(
         snippet = scene.get("text")
         if (
             type(number) is not int or number < first_scene or number > 60
+            or (wanted is not None and number not in wanted)
             or not isinstance(name, str) or name not in paths
             or not isinstance(snippet, str)
         ):
@@ -195,6 +208,7 @@ def review_scene_frames(
                     "visual_relation": "insufficient",
                     "requires_strict_review": False,
                     "recommended_action": "inspecionar_e_buscar_alternativa",
+                    "failure_stage": None,
                 }
                 filename = Path(paths[job["file"]])
                 if (
@@ -258,12 +272,20 @@ def review_scene_frames(
                             max_output_tokens=500,
                         ),
                     )
-                    result = _parse_assessment(getattr(response, "text", None))
-                except Exception:  # noqa: BLE001 - third-party failure must not approve
+                except Exception:  # noqa: BLE001 - never expose credentials
                     row["status"] = "provider_or_response_failure"
+                    row["failure_stage"] = "api_request"
                 else:
-                    row.update(result)
-                    row["status"] = "ai_assessment_for_human_review"
+                    try:
+                        result = _parse_assessment(
+                            getattr(response, "text", None)
+                        )
+                    except (ValueError, TypeError):
+                        row["status"] = "provider_or_response_failure"
+                        row["failure_stage"] = "invalid_model_response"
+                    else:
+                        row.update(result)
+                        row["status"] = "ai_assessment_for_human_review"
                 assessments.append(row)
 
     return {
