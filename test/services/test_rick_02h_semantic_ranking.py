@@ -109,6 +109,7 @@ def _fixtures(tmp_path, scenes=1):
     workspace = {
         "paths": paths,
         "preview": {"scenes": [{"text": t} for t in texts]},
+        "preview_sha256": "stable-mock-preview-fingerprint",
         "source_metadata": meta,
         "saved_review": {"scenes": [
             {"editorial_review": "unreviewed"} for _ in texts
