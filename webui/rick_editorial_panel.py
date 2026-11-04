@@ -424,34 +424,30 @@ def render_editorial_panel(
                     "Salvar credenciais não consulta a API nem envia vídeos. "
                     "A análise de quadros continua exigindo autorização e clique."
                 )
-                with st.form(
-                    key=f"rick_visual_gemini_settings_{selected_id}",
-                    clear_on_submit=True,
-                ):
-                    visual_key = st.text_input(
-                        "Chave API Gemini (Google AI Studio)",
-                        value="",
-                        type="password",
-                        placeholder=(
-                            "Chave já configurada — deixe vazio para manter"
-                            if key_ready else "Cole aqui sua chave Gemini"
-                        ),
-                        key=f"rick_visual_gemini_key_{selected_id}",
-                    )
-                    model_default = model_name or "gemini-3.5-flash-lite"
-                    visual_model = st.selectbox(
-                        "Modelo para comparar imagens com a narração",
-                        options=available_visual_models,
-                        index=available_visual_models.index(model_default),
-                        key=f"rick_visual_gemini_model_{selected_id}",
-                        help=(
-                            "Flash-Lite prioriza custo; Flash prioriza desempenho. "
-                            "O acesso depende dos modelos disponíveis na sua conta."
-                        ),
-                    )
-                    save_visual = st.form_submit_button(
-                        "Salvar configuração da IA visual"
-                    )
+                visual_key = st.text_input(
+                    "Chave API Gemini (Google AI Studio)",
+                    value="",
+                    type="password",
+                    placeholder=(
+                        "Chave já configurada — deixe vazio para manter"
+                        if key_ready else "Cole aqui sua chave Gemini"
+                    ),
+                    key=f"rick_visual_gemini_key_{selected_id}",
+                )
+                model_default = model_name or "gemini-3.5-flash-lite"
+                visual_model = st.selectbox(
+                    "Modelo para comparar imagens com a narração",
+                    options=available_visual_models,
+                    index=available_visual_models.index(model_default),
+                    key=f"rick_visual_gemini_model_{selected_id}",
+                    help=(
+                        "Flash-Lite prioriza custo; Flash prioriza desempenho. "
+                        "O acesso depende dos modelos disponíveis na sua conta."
+                    ),
+                )
+                save_visual = st.button(
+                    "Salvar configuração da IA visual"
+                )
                 if save_visual:
                     try:
                         result = save_visual_gemini_settings(
