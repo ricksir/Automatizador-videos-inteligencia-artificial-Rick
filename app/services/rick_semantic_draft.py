@@ -55,6 +55,8 @@ def build_semantic_draft_assignments(
     if not isinstance(preview_hash, str):
         raise ValueError("Identificador da prévia ausente.")
     candidates = {}
+    seen_targets: set[int] = set()
+    recorded_model: str | None = None
     rows = []
     for index, (scene, proposal) in enumerate(
         zip(preview["scenes"], proposals["scenes"]), 1
@@ -117,6 +119,17 @@ def build_semantic_draft_assignments(
             raise ValueError("Grupo de comparações inválido.")
         if key != ",".join(str(n) for n in targets):
             raise ValueError("Identificação de grupo não corresponde às cenas.")
+        if seen_targets.intersection(targets):
+            raise ValueError(
+                "Comparações repetidas para uma mesma cena; atualize o lote."
+            )
+        seen_targets.update(targets)
+        if recorded_model is None:
+            recorded_model = recovery["model"]
+        elif recovery["model"] != recorded_model:
+            raise ValueError(
+                "Comparações de modelos Gemini diferentes não podem ser misturadas."
+            )
         for rank in rankings:
             if not isinstance(rank, Mapping):
                 raise ValueError("Ranking de mídia inválido.")
