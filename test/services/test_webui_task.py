@@ -300,6 +300,7 @@ def test_terminal_task_renders_subject_named_video_download(
         "_WINDOWS_RESERVED_FILENAMES",
         "_build_video_download_name",
         "_normalize_task_state",
+        "_render_rick_quality",
         "_render_generation_task_snapshot",
     }
     for node in tree.body:
