@@ -4,6 +4,7 @@ from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
 
 from app.config import config
+from app.services.rick_startup_preset import PRESET_VERSION
 from app.services import voice
 
 
@@ -40,6 +41,8 @@ def test_reusable_generation_settings_survive_a_new_webui_session():
     )
     test_ui_config = dict(
         config.ui,
+        rick_startup_preset_version=PRESET_VERSION,
+        rick_profile_enabled=False,
         language="en",
         voice_mode="tts",
         tts_server="azure-tts-v1",
@@ -277,6 +280,8 @@ def test_invalid_saved_generation_settings_fall_back_without_breaking_webui():
     )
     test_ui_config = dict(
         config.ui,
+        rick_startup_preset_version=PRESET_VERSION,
+        rick_profile_enabled=False,
         language="en",
         voice_mode="tts",
         tts_server="azure-tts-v1",
@@ -347,6 +352,8 @@ def test_ofox_source_shows_unchecked_paid_task_confirmation():
     )
     test_ui_config = dict(
         config.ui,
+        rick_startup_preset_version=PRESET_VERSION,
+        rick_profile_enabled=False,
         language="en",
         voice_mode="none",
     )
@@ -370,6 +377,8 @@ def test_seedance_source_shows_unchecked_paid_task_confirmation():
     )
     test_ui_config = dict(
         config.ui,
+        rick_startup_preset_version=PRESET_VERSION,
+        rick_profile_enabled=False,
         language="en",
         voice_mode="none",
     )
@@ -398,6 +407,8 @@ def test_loomloom_tuning_survives_restart_without_persisting_payment_state():
     )
     test_ui_config = dict(
         config.ui,
+        rick_startup_preset_version=PRESET_VERSION,
+        rick_profile_enabled=False,
         language="en",
         voice_mode="tts",
         tts_server="azure-tts-v1",
@@ -463,6 +474,8 @@ def test_script_order_constraint_does_not_replace_saved_concat_preference():
     )
     test_ui_config = dict(
         config.ui,
+        rick_startup_preset_version=PRESET_VERSION,
+        rick_profile_enabled=False,
         language="en",
         video_concat_mode="random",
         voice_mode="tts",
