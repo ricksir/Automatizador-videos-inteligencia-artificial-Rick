@@ -25,7 +25,8 @@ _ASSESSMENT_KEYS = (
     "failure_kind", "requires_strict_review",
 )
 _COMPARISON_KEYS = (
-    *_ASSESSMENT_KEYS, "original_file", "metadata_score",
+    *(key for key in _ASSESSMENT_KEYS if key != "failure_kind"),
+    "original_file", "metadata_score",
     "candidate_order", "source_page", "license_metadata",
     "selected_as_primary", "rights_verified",
 )
