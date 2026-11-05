@@ -48,6 +48,7 @@ Este guia usa a versão de trabalho da PR #43 (CI de 05/11/2026, 6/6 jobs aprova
 5. Observe **Grupos processados: 1/2**. No mesmo lote, selecione o grupo **cenas 4, 5, 6** e faça a segunda execução explícita.
 6. Confirme **Grupos processados: 2/2** e a presença dos dois resultados. A recuperação pode terminar com cenas ainda pendentes: isso é um resultado válido, não sucesso editorial.
 7. Se ocorrer falha do provedor, use o mecanismo específico de retentativa de falhas; **não** reanalise todo o lote ou reinicie a primeira busca sem necessidade.
+8. **Se já tiver recuperado as cenas 4 e 6 antes de corrigir falhas nas cenas 1, 2, 3 e 5**, o histórico de 4 e 6 deve permanecer após a retentativa. Os próximos grupos podem ser **1–3** e **5**, sem repetir consultas nas cenas 4 e 6. A contagem de grupos pode mudar conforme as cenas válidas se tornam elegíveis; isso não deve apagar resultados anteriores.
 
 **Estimativa de operações:** na pior situação do lote com seis cenas problemáticas, o aplicativo pode fazer até seis invocações ao SDK Gemini na análise inicial, seguidas de até seis para cada grupo de alternativas (até 18 invocações ao SDK no total), além dos acessos aos bancos de mídia. **Esse número não limita as tentativas HTTP reais**, pois o SDK do Google pode repetir requisições automaticamente em erros transitórios, como 429/5xx. Confira cota, credenciais e custos no Google AI Studio antes de autorizar.
 
