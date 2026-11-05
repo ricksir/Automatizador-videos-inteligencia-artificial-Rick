@@ -120,6 +120,41 @@ def _parse_assessment(text: object) -> dict:
     }
 
 
+
+def _classify_api_failure(error: BaseException) -> str:
+    """Return only a fixed category; never retain provider errors or tokens."""
+    status = None
+    for attribute in ("status_code", "code"):
+        try:
+            candidate = getattr(error, attribute, None)
+        except Exception:  # Provider-specific properties may fail.
+            continue
+        if type(candidate) is int and 100 <= candidate <= 599:
+            status = candidate
+            break
+    if status in (401, 403):
+        return "credential_or_permission"
+    if status == 429:
+        return "quota_or_rate_limit"
+    if status == 404:
+        return "model_not_found"
+    if status in (400, 422):
+        return "invalid_request"
+    if status in (408, 504):
+        return "timeout_or_connection"
+    if status is not None and 500 <= status <= 599:
+        return "provider_unavailable"
+    if status is not None:
+        return "other_http_error"
+    if type(error).__name__.lower() in {
+        "timeout", "timeouterror", "connecttimeout", "readtimeout",
+        "timeoutexception", "connecterror", "connectionerror",
+        "networkerror", "networkconnectionerror",
+    }:
+        return "timeout_or_connection"
+    return "unclassified_api_error"
+
+
 def review_scene_frames(
     report: Mapping,
     paths: Mapping[str, str],
@@ -272,9 +307,10 @@ def review_scene_frames(
                             max_output_tokens=500,
                         ),
                     )
-                except Exception:  # noqa: BLE001 - never expose credentials
+                except Exception as exc:  # noqa: BLE001 - never expose credentials
                     row["status"] = "provider_or_response_failure"
                     row["failure_stage"] = "api_request"
+                    row["failure_kind"] = _classify_api_failure(exc)
                 else:
                     try:
                         result = _parse_assessment(
@@ -283,6 +319,7 @@ def review_scene_frames(
                     except (ValueError, TypeError):
                         row["status"] = "provider_or_response_failure"
                         row["failure_stage"] = "invalid_model_response"
+                        row["failure_kind"] = "invalid_response"
                     else:
                         row.update(result)
                         row["status"] = "ai_assessment_for_human_review"
