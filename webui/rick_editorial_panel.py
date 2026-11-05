@@ -608,10 +608,64 @@ def render_editorial_panel(
                         "Essas cenas NÃO foram consideradas incertas por análise "
                         "de imagem: a avaliação não foi concluída."
                     )
+                    # Never show raw API exception text: it may include keys,
+                    # request URLs or user data. Old saved errors had no kind.
+                    guidance = {
+                        "quota_or_rate_limit": (
+                            "Limite de taxa/cota (429)",
+                            "Confira cota e limites do Gemini; tente depois da liberação.",
+                        ),
+                        "credential_or_permission": (
+                            "Credencial/permissão (401/403)",
+                            "Verifique a chave e o acesso ao modelo antes de repetir.",
+                        ),
+                        "model_not_found": (
+                            "Modelo não encontrado (404)",
+                            "Confira o modelo visual configurado e seu acesso.",
+                        ),
+                        "invalid_request": (
+                            "Requisição rejeitada (400/422)",
+                            "Verifique a configuração; repetir igual pode falhar novamente.",
+                        ),
+                        "timeout_or_connection": (
+                            "Conexão ou timeout",
+                            "Verifique a rede antes de fazer outra chamada.",
+                        ),
+                        "provider_unavailable": (
+                            "Serviço Gemini indisponível (5xx)",
+                            "Tente mais tarde; não repita em sequência.",
+                        ),
+                        "other_http_error": (
+                            "Outro código HTTP",
+                            "Confira o serviço e a configuração antes de repetir.",
+                        ),
+                        "invalid_response": (
+                            "Resposta do Gemini inválida",
+                            "A resposta não passou na validação; tente apenas esta cena.",
+                        ),
+                        "unclassified_api_error": (
+                            "Falha não classificada/anterior à atualização",
+                            "O erro original não foi salvo; uma nova tentativa "
+                            "poderá registrar a categoria, sem expor credenciais.",
+                        ),
+                    }
+                    st.dataframe([
+                        {
+                            "Cena": row["scene_number"],
+                            "Categoria segura": guidance.get(
+                                row.get("failure_kind"), guidance["unclassified_api_error"]
+                            )[0],
+                            "Antes de reexecutar": guidance.get(
+                                row.get("failure_kind"), guidance["unclassified_api_error"]
+                            )[1],
+                        }
+                        for row in failed_rows
+                    ], hide_index=True, use_container_width=True)
                     st.caption(
                         "É possível reexecutar somente as cenas com falha. "
                         "Isso fará até uma chamada adicional por cena e "
-                        "poderá consumir cota ou gerar cobrança."
+                        "poderá consumir cota ou gerar cobrança. "
+                        "Não repita se a cota, a chave ou o modelo estiverem bloqueados."
                     )
                     if st.button(
                         "Reexecutar apenas cenas sem avaliação válida",
