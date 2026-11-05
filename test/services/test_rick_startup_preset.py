@@ -52,6 +52,36 @@ class TestRickStartupPreset(unittest.TestCase):
                     background_expected,
                 )
 
+    def test_saved_subtitle_colors_are_valid_hex(self):
+        from app.services.rick_startup_preset import seed_startup_widgets
+
+        cases = (
+            ("#123AbC", "#123AbC"),
+            (" #aabbcc ", "#aabbcc"),
+            ("not-a-color", None),
+            ("#FFF", None),
+            ("#12345g", None),
+            ("#12345678", None),
+            ("", None),
+            (None, None),
+        )
+        for raw, valid in cases:
+            with self.subTest(raw=raw):
+                session = {}
+                seed_startup_widgets(
+                    session, lambda key, value: None,
+                    ui_config={
+                        "text_fore_color": raw,
+                        "stroke_color": raw,
+                    },
+                )
+                self.assertEqual(
+                    session["font_color_picker"], valid or "#FFFFFF"
+                )
+                self.assertEqual(
+                    session["stroke_color_picker"], valid or "#000000"
+                )
+
     def test_saved_font_size_never_breaks_subtitle_slider(self):
         from app.services.rick_startup_preset import seed_startup_widgets
 

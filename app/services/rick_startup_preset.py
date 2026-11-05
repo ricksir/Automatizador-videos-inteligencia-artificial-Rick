@@ -8,6 +8,7 @@ saved preferences before rendering. Later user changes are saved normally.
 from __future__ import annotations
 
 import math
+import re
 from typing import Mapping
 
 
@@ -67,6 +68,15 @@ def pending_startup_settings(ui_config: Mapping) -> tuple[tuple[str, str, object
     )
 
 
+def _safe_color(value: object, default: str) -> str:
+    """Use only six-digit hexadecimal colors for Streamlit color pickers."""
+    if isinstance(value, str):
+        color = value.strip()
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            return color
+    return default
+
+
 def _safe_font_size(value: object) -> int:
     """Normalize saved subtitle font sizes to the actual Streamlit slider range."""
     try:
@@ -124,9 +134,13 @@ def seed_startup_widgets(session_state, set_widget, *, ui_config=None, app_confi
         "avoid_repeated_materials": _safe_saved_bool(ui["avoid_repeated_materials"], True),
         "match_materials_to_script": _safe_saved_bool(app["match_materials_to_script"], True),
         "subtitle_enabled_checkbox": _safe_saved_bool(ui["subtitle_enabled"], True),
-        "font_color_picker": str(ui["text_fore_color"]),
+        "font_color_picker": _safe_color(
+            ui["text_fore_color"], RICK_STARTUP_DEFAULTS["ui"]["text_fore_color"]
+        ),
         "font_size_slider": _safe_font_size(ui["font_size"]),
-        "stroke_color_picker": str(ui["stroke_color"]),
+        "stroke_color_picker": _safe_color(
+            ui["stroke_color"], RICK_STARTUP_DEFAULTS["ui"]["stroke_color"]
+        ),
         "stroke_width_slider": _safe_stroke_width(ui["stroke_width"]),
         "subtitle_background_enabled_checkbox": _safe_saved_bool(ui["subtitle_background_enabled"], False),
         "rounded_subtitle_background_checkbox": _safe_saved_bool(ui["rounded_subtitle_background"], False),
