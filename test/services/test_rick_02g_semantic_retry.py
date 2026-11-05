@@ -294,3 +294,56 @@ def test_ui_counts_sdk_invocations_without_claiming_exact_http_attempts():
     assert "esse contador não mede cada tentativa HTTP" in code
     assert "O SDK pode repetir requisições HTTP automaticamente" in code
     assert "invocações do SDK Gemini, sem contar retentativas" in code
+
+
+
+def test_semantic_display_never_fakes_gemini_verdict_after_api_failure():
+    import ast
+
+    panel = Path(__file__).parents[2] / "webui" / "rick_editorial_panel.py"
+    source = panel.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    helper = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_semantic_scene_display"
+    )
+    namespace = {}
+    exec(
+        compile(ast.Module(body=[helper], type_ignores=[]), str(panel), "exec"),
+        namespace,
+    )
+    display = namespace["_semantic_scene_display"]
+    row = {
+        "scene_number": 1, "file": "original.mp4",
+        "status": "provider_or_response_failure",
+        "verdict": "uncertain", "visual_relation": "insufficient",
+        "visible_evidence": "", "reason": "",
+    }
+    result = display(row)
+    assert result["Estado"] == "Falha técnica (API/resposta)"
+    assert result["Veredito IA"] == "— (sem veredito)"
+    assert result["Relação"] == "—"
+    assert "reavaliar" in result["Próximo passo"]
+
+    for technical_status in (
+        "frames_unavailable", "invalid_local_media", "not_evaluated"
+    ):
+        assert display({**row, "status": technical_status})["Relação"] == "—"
+
+    good = display({
+        **row,
+        "status": "ai_assessment_for_human_review",
+        "verdict": "uncertain", "visual_relation": "metaphorical",
+        "visible_evidence": "Chamas e madeira",
+        "reason": "A imagem é uma metáfora",
+    })
+    assert good["Estado"] == "Avaliada"
+    assert good["Veredito IA"] == "uncertain"
+    assert good["Relação"] == "metaphorical"
+    assert good["Evidência"] == "Chamas e madeira"
+
+    assert "for row in valid_records" in source
+    assert "if pending_records:" in source
+    assert "Não entram na busca de" in source
+    assert "if valid_records:" in source
