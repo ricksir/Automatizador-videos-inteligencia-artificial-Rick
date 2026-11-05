@@ -288,6 +288,10 @@ class TestRickStartupPreset(unittest.TestCase):
             "tts_server_select_pt": "azure-tts-v1",
         }
         st.columns.return_value = [MagicMock() for _ in range(4)]
+        # Streamlit toggles start disabled. A bare MagicMock is truthy and
+        # spuriously opens the optional editorial review panel during this
+        # isolated AST harness, calling application globals not under test.
+        st.toggle.return_value = False
         render_video = Mock(return_value=[])
         render_audio = Mock(return_value=(None, None, "tts"))
         render_script = Mock()
