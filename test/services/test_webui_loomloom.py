@@ -20,7 +20,7 @@ WEBUI_MAIN = ROOT_DIR / "webui" / "Main.py"
 @pytest.fixture(autouse=True)
 def _existing_loomloom_configuration():
     """UI integration tests are for configured sessions, not first-run migration."""
-    with patch.object(config, "ui", {**config.ui, PRESET_MARKER: PRESET_VERSION}):
+    with patch.object(config, "ui", {**config.ui, PRESET_MARKER: PRESET_VERSION, "rick_profile_enabled": False}):
         yield
 
 
