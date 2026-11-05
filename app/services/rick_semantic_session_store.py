@@ -22,7 +22,7 @@ _MAX_BYTES = 512 * 1024
 _ASSESSMENT_KEYS = (
     "scene_number", "file", "verdict", "visible_evidence", "reason",
     "status", "visual_relation", "recommended_action", "failure_stage",
-    "requires_strict_review",
+    "failure_kind", "requires_strict_review",
 )
 _COMPARISON_KEYS = (
     *_ASSESSMENT_KEYS, "original_file", "metadata_score",
@@ -124,6 +124,14 @@ def _clean_recovery(recovery: Mapping) -> dict:
     }
 
 
+_SAFE_FAILURE_KINDS = frozenset({
+    "credential_or_permission", "quota_or_rate_limit",
+    "model_not_found", "invalid_request",
+    "timeout_or_connection", "provider_unavailable",
+    "other_http_error", "unclassified_api_error", "invalid_response",
+})
+
+
 def _valid_assessment(
     value: object, *, proposals: Mapping, workspace: Mapping,
     model: str, first_scene: int,
@@ -168,6 +176,14 @@ def _valid_assessment(
             or not isinstance(row.get("visual_relation"), str)
             or not isinstance(row.get("visible_evidence"), str)
             or not isinstance(row.get("reason"), str)
+            or (
+                "failure_kind" in row
+                and (
+                    row["status"] != "provider_or_response_failure"
+                    or type(row["failure_kind"]) is not str
+                    or row["failure_kind"] not in _SAFE_FAILURE_KINDS
+                )
+            )
         ):
             return False
         seen.add(num)
