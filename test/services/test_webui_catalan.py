@@ -5,6 +5,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from app.config import config
+from app.services.rick_startup_preset import PRESET_MARKER, PRESET_VERSION
 from app.services import state as sm
 from app.services import version_checker, voice
 
@@ -29,6 +30,7 @@ def catalan_app():
         patch.object(config, "ui", {
             "language": "ca", "voice_mode": "tts", "tts_server": "azure-tts-v1",
             "voice_name": "ca-ES-JoanaNeural-Female", "video_language": "ca-ES",
+            PRESET_MARKER: PRESET_VERSION,  # Explicit Catalan user settings, not first run.
         }),
         patch.object(config, "try_save_config", return_value=True),
         patch.object(sm.state, "get_all_tasks", return_value=([], 0)),
