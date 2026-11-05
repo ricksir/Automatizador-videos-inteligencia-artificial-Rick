@@ -183,7 +183,11 @@ def quote_page():
     )
     with ExitStack() as stack:
         stack.enter_context(patch.object(config, "app", values))
-        stack.enter_context(patch.object(config, "ui", {PRESET_MARKER: PRESET_VERSION, "rick_profile_enabled": False}))
+        stack.enter_context(patch.object(config, "ui", {
+            PRESET_MARKER: PRESET_VERSION,
+            "rick_profile_enabled": False,
+            "video_aspect_loomloom": "16:9",
+        }))
         stack.enter_context(patch.object(config, "try_save_config", return_value=True))
         stack.enter_context(
             patch.object(
@@ -257,7 +261,9 @@ def test_changed_billable_inputs_allow_one_new_quote_attempt(quote_page, field):
     elif field == "model":
         widget(app.selectbox, "loomloom_video_model_select_en").select("b")
     elif field == "ratio":
-        widget(app.selectbox, "video_aspect_for_loomloom_en").select("9:16")
+        aspect = widget(app.selectbox, "video_aspect_for_loomloom_en")
+        assert aspect.value == "16:9"
+        aspect.select("9:16")
     elif field == "count":
         widget(app.number_input, "loomloom_video_scene_count").set_value(2)
     elif field == "key":
