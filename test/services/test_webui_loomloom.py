@@ -5,14 +5,23 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from app.config import config
+from app.services.rick_startup_preset import PRESET_MARKER, PRESET_VERSION
 from app.services import llm, loomloom
 
 
 ROOT_DIR = Path(__file__).parent.parent.parent
 WEBUI_MAIN = ROOT_DIR / "webui" / "Main.py"
+
+
+@pytest.fixture(autouse=True)
+def _existing_loomloom_configuration():
+    """UI integration tests are for configured sessions, not first-run migration."""
+    with patch.object(config, "ui", {**config.ui, PRESET_MARKER: PRESET_VERSION}):
+        yield
 
 
 def _video_capability(default_model_id="model-a", models=None):
