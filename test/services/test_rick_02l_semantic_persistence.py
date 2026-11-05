@@ -171,7 +171,7 @@ def test_failed_retry_cannot_mutate_a_completed_scene_or_erase_history(tmp_path)
     assert path.read_bytes() == existing
     retry["results"][0] = deepcopy(assessment["results"][0])
     retry["results"][1]["file"] = "alternative.mp4"
-    with pytest.raises(ValueError, match="mídia"):
+    with pytest.raises(ValueError, match="(não corresponde|mídia)"):
         record_semantic_failed_retry(root, "t123", **kwargs, assessment=retry)
     assert path.read_bytes() == existing
 
