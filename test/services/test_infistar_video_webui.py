@@ -7,6 +7,7 @@ from streamlit.testing.v1 import AppTest
 import pytest
 
 from app.config import config
+from app.services.rick_startup_preset import PRESET_MARKER, PRESET_VERSION
 
 WEBUI = Path(__file__).parents[2] / "webui/Main.py"
 
@@ -21,6 +22,7 @@ def test_infistar_video_models_specs_and_billing_confirmation(language):
     }
     with (
         patch.object(config, "app", values),
+        patch.object(config, "ui", {**config.ui, PRESET_MARKER: PRESET_VERSION}),
         patch.object(config, "try_save_config", return_value=True),
     ):
         app = AppTest.from_file(str(WEBUI), default_timeout=60)
@@ -76,6 +78,7 @@ def test_video_credentials_are_editable_with_any_llm(llm_provider):
     }
     with (
         patch.object(config, "app", values),
+        patch.object(config, "ui", {**config.ui, PRESET_MARKER: PRESET_VERSION}),
         patch.object(config, "try_save_config", return_value=True),
     ):
         app = AppTest.from_file(str(WEBUI), default_timeout=60)
