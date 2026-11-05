@@ -31,6 +31,7 @@ def catalan_app():
             "language": "ca", "voice_mode": "tts", "tts_server": "azure-tts-v1",
             "voice_name": "ca-ES-JoanaNeural-Female", "video_language": "ca-ES",
             PRESET_MARKER: PRESET_VERSION,  # Explicit Catalan user settings, not first run.
+            "rick_profile_enabled": False,  # This test is not using Rick PT-BR mode.
         }),
         patch.object(config, "try_save_config", return_value=True),
         patch.object(sm.state, "get_all_tasks", return_value=([], 0)),
