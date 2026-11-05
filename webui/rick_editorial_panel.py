@@ -568,7 +568,9 @@ def render_editorial_panel(
             if isinstance(stored, dict):
                 st.caption(
                     f"{stored.get('assessed', 0)} avaliações retornadas "
-                    f"em {stored.get('api_requests', 0)} chamadas. "
+                    f"em {stored.get('api_requests', 0)} invocações ao SDK Gemini. "
+                    "O SDK pode repetir internamente requisições HTTP em falhas "
+                    "transitórias; esse contador não mede cada tentativa HTTP. "
                     "A opinião da IA não equivale à validação editorial."
                 )
                 current = {
@@ -663,8 +665,9 @@ def render_editorial_panel(
                     ], hide_index=True, use_container_width=True)
                     st.caption(
                         "É possível reexecutar somente as cenas com falha. "
-                        "Isso fará até uma chamada adicional por cena e "
-                        "poderá consumir cota ou gerar cobrança. "
+                        "Isso fará até uma invocação adicional do SDK por cena. "
+                        "O SDK pode repetir requisições HTTP automaticamente; "
+                        "há possível consumo de cota ou cobrança. "
                         "Não repita se a cota, a chave ou o modelo estiverem bloqueados."
                     )
                     if st.button(
@@ -810,8 +813,9 @@ def render_editorial_panel(
                         index=1,
                         key=f"rick_ai_fix_depth_{selected_id}_{first_scene}",
                         help=(
-                            "1 = até 3 chamadas adicionais por grupo; "
-                            "2 = até 6. A segunda só é testada se a "
+                            "1 = até 3 invocações do SDK por grupo; "
+                            "2 = até 6. O SDK pode repetir internamente erros "
+                            "transitórios. A segunda alternativa só é testada se a "
                             "primeira não tiver relação direta plausível. "
                             "Nenhuma escolha é aplicada automaticamente."
                         ),
@@ -857,8 +861,8 @@ def render_editorial_panel(
                         )
                         st.caption(
                             f"Limite para este grupo: até {max_extra_calls} "
-                            "chamada(s) Gemini; pode consumir cota "
-                            "ou gerar cobrança."
+                            "invocações do SDK Gemini, sem contar retentativas "
+                            "HTTP internas; pode consumir cota ou gerar cobrança."
                         )
                         if st.button(
                             "Buscar alternativas e reavaliar até 3 cenas com IA",
@@ -954,7 +958,7 @@ def render_editorial_panel(
                             f"Busca: {new_files.get('imported_count', 0)} arquivo(s) "
                             f"importado(s); {len(recovered.get('compared', []))} "
                             f"alternativa(s) examinada(s), "
-                            f"{recovered.get('api_requests', 0)} chamada(s) Gemini. "
+                            f"{recovered.get('api_requests', 0)} invocações do SDK Gemini. "
                             "Nenhuma substituição ou aprovação foi realizada."
                         )
                         replacements = [

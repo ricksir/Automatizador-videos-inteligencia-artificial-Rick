@@ -284,3 +284,13 @@ def test_ui_shows_failed_as_technical_and_offers_explicit_retry():
     assert '"Categoria segura"' in code
     assert "quota_or_rate_limit" in code
     assert "Falha não classificada/anterior à atualização" in code
+
+
+
+def test_ui_counts_sdk_invocations_without_claiming_exact_http_attempts():
+    code = (
+        Path(__file__).parents[2] / "webui" / "rick_editorial_panel.py"
+    ).read_text(encoding="utf-8")
+    assert "esse contador não mede cada tentativa HTTP" in code
+    assert "O SDK pode repetir requisições HTTP automaticamente" in code
+    assert "invocações do SDK Gemini, sem contar retentativas" in code

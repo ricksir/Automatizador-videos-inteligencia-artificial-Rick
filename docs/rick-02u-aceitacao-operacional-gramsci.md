@@ -43,13 +43,13 @@ Este guia usa a versão de trabalho da PR #43 (CI de 05/11/2026, 6/6 jobs aprova
 
 1. Se houver cenas problemáticas, abra **Rick — Encontrar e testar alternativas**.
 2. Em **Máximo de alternativas por cena**, selecione **2**. A segunda só é analisada caso a primeira não tenha correspondência direta plausível.
-3. Em **Próximo grupo de cenas a recuperar**, confira as **cenas 1, 2, 3** (quando todas as seis estiverem sinalizadas). Com consentimento ativo, clique **Buscar alternativas e reavaliar até 3 cenas com IA**. Limite por grupo: até seis chamadas Gemini e downloads possíveis.
+3. Em **Próximo grupo de cenas a recuperar**, confira as **cenas 1, 2, 3** (quando todas as seis estiverem sinalizadas). Com consentimento ativo, clique **Buscar alternativas e reavaliar até 3 cenas com IA**. Limite do aplicativo por grupo: até seis invocações ao SDK Gemini, além de downloads possíveis; o SDK pode efetuar novas tentativas HTTP internas.
 4. Confira o diagnóstico e não aprove nada só com base na sugestão da IA. A resposta só deve recomendar arquivo se houver relação **direta, plausível e sustentada por evidência visual**.
 5. Observe **Grupos processados: 1/2**. No mesmo lote, selecione o grupo **cenas 4, 5, 6** e faça a segunda execução explícita.
 6. Confirme **Grupos processados: 2/2** e a presença dos dois resultados. A recuperação pode terminar com cenas ainda pendentes: isso é um resultado válido, não sucesso editorial.
 7. Se ocorrer falha do provedor, use o mecanismo específico de retentativa de falhas; **não** reanalise todo o lote ou reinicie a primeira busca sem necessidade.
 
-**Limite de custo:** na pior situação do lote com seis cenas problemáticas, uma análise inicial pode fazer até seis chamadas Gemini, seguida de até seis para cada grupo de alternativas (até 18 chamadas de análise visual no total), além dos acessos aos bancos de mídia. Confirme cota, credenciais e custo antes de autorizar.
+**Estimativa de operações:** na pior situação do lote com seis cenas problemáticas, o aplicativo pode fazer até seis invocações ao SDK Gemini na análise inicial, seguidas de até seis para cada grupo de alternativas (até 18 invocações ao SDK no total), além dos acessos aos bancos de mídia. **Esse número não limita as tentativas HTTP reais**, pois o SDK do Google pode repetir requisições automaticamente em erros transitórios, como 429/5xx. Confira cota, credenciais e custos no Google AI Studio antes de autorizar.
 
 ## 5. Verificar persistência e retomada
 
