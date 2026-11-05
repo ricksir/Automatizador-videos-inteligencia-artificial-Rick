@@ -11,6 +11,47 @@ from app.services.rick_startup_preset import (
 
 
 class TestRickStartupPreset(unittest.TestCase):
+    def test_persisted_boolean_widgets_accept_string_false_and_true(self):
+        from app.services.rick_startup_preset import seed_startup_widgets
+
+        cases = (
+            ("false", False), (" FALSE ", False), ("0", False),
+            ("off", False), ("true", True), (" YES ", True),
+            (False, False), (True, True), ("unexpected", True),
+        )
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                session = {}
+                seed_startup_widgets(
+                    session, lambda key, value: None,
+                    ui_config={
+                        "rick_profile_enabled": raw,
+                        "avoid_repeated_materials": raw,
+                        "subtitle_enabled": raw,
+                        "subtitle_background_enabled": raw,
+                        "rounded_subtitle_background": raw,
+                    },
+                    app_config={"match_materials_to_script": raw},
+                )
+                for key in (
+                    "rick_profile_enabled",
+                    "avoid_repeated_materials",
+                    "subtitle_enabled_checkbox",
+                    "match_materials_to_script",
+                ):
+                    self.assertIs(session[key], expected)
+                background_expected = (
+                    expected if raw != "unexpected" else False
+                )
+                self.assertIs(
+                    session["subtitle_background_enabled_checkbox"],
+                    background_expected,
+                )
+                self.assertIs(
+                    session["rounded_subtitle_background_checkbox"],
+                    background_expected,
+                )
+
     def test_saved_stroke_width_is_finite_and_within_slider_bounds(self):
         from app.services.rick_startup_preset import seed_startup_widgets
 
