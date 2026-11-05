@@ -7,6 +7,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from app.config import config
+from app.services.rick_startup_preset import PRESET_MARKER, PRESET_VERSION
 from app.models.schema import VideoParams
 from app.services import state as sm, version_checker
 
@@ -21,7 +22,10 @@ def _select(app, key):
 def test_motion_widget_persists_and_restores_old_and_new_tasks(tmp_path):
     with (
         patch.object(config, "app", {"video_source": "local", "llm_provider": "openai"}),
-        patch.object(config, "ui", {"language": "zh", "voice_mode": "none"}),
+        patch.object(config, "ui", {
+            "language": "zh", "voice_mode": "none",
+            PRESET_MARKER: PRESET_VERSION,
+        }),
         patch.object(config, "try_save_config", return_value=True),
         patch.object(sm.state, "get_all_tasks", return_value=([], 0)),
         patch.object(version_checker, "poll_available_update", return_value=version_checker.UpdateCheckSnapshot(complete=True)),
@@ -76,7 +80,10 @@ def test_motion_selection_survives_rebuild_while_generation_holds_config(tmp_pat
 
     with (
         patch.object(config, "app", {"video_source": "local", "llm_provider": "openai"}),
-        patch.object(config, "ui", {"language": "zh", "voice_mode": "none"}),
+        patch.object(config, "ui", {
+            "language": "zh", "voice_mode": "none",
+            PRESET_MARKER: PRESET_VERSION,
+        }),
         patch.object(config, "try_save_config", return_value=True),
         patch.object(config, "save_config"),
         patch.object(sm.state, "get_all_tasks", return_value=([], 0)),
