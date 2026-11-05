@@ -391,6 +391,74 @@ def record_semantic_assessment(
     })
 
 
+
+def record_semantic_failed_retry(
+    tasks_root: str | Path,
+    task_id: str,
+    *,
+    first_scene: int,
+    workspace: Mapping,
+    proposals: Mapping,
+    model: str,
+    assessment: Mapping,
+) -> dict[str, Any]:
+    """Update only failed scene judgments, retaining unrelated paid comparisons.
+
+    A fresh full-batch assessment must still use record_semantic_assessment,
+    which intentionally invalidates all comparisons.
+    """
+    previous = load_semantic_batch(
+        tasks_root, task_id, first_scene=first_scene, workspace=workspace,
+        proposals=proposals, model=model,
+    )
+    baseline = previous["assessment"]
+    if not isinstance(baseline, Mapping) or not isinstance(assessment, Mapping):
+        raise ValueError("Avaliação original persistida não disponível.")
+    updated = _clean_assessment(assessment)
+    if not _valid_assessment(
+        updated, proposals=proposals, workspace=workspace,
+        model=model, first_scene=first_scene,
+    ):
+        raise ValueError("Retentativa não corresponde à avaliação original.")
+    old_rows = {r["scene_number"]: r for r in baseline["results"]}
+    new_rows = {r["scene_number"]: r for r in updated["results"]}
+    if set(old_rows) != set(new_rows) or updated["model"] != baseline["model"]:
+        raise ValueError("Retentativa alterou cenas ou modelo de origem.")
+    failed = {
+        n for n, row in old_rows.items()
+        if row["status"] == "provider_or_response_failure"
+    }
+    if not failed:
+        raise ValueError("Nenhuma cena com falha permite retentativa.")
+    for number, original in old_rows.items():
+        new = new_rows[number]
+        if original["file"] != new["file"]:
+            raise ValueError("Retentativa trocou a mídia da cena.")
+        if number not in failed and original != new:
+            raise ValueError("Retentativa alterou um parecer válido.")
+    old_calls = baseline.get("api_requests")
+    new_calls = updated.get("api_requests")
+    if (
+        type(old_calls) is not int or type(new_calls) is not int
+        or not old_calls <= new_calls <= old_calls + len(failed)
+    ):
+        raise ValueError("Contagem de requisições da retentativa inválida.")
+    history = previous["history"]
+    for entry in history.values():
+        if not _valid_recovery(
+            entry, assessment=updated, workspace=workspace,
+            proposals=proposals, model=model, first_scene=first_scene,
+        ):
+            raise ValueError("A retentativa invalidaria uma recuperação já salva.")
+    path = _file(tasks_root, task_id, first_scene)
+    _atomic_write(path, {
+        **_identity(workspace, proposals, model, first_scene),
+        "assessment": updated,
+        "history": history,
+    })
+    return {"assessment": updated, "history": history}
+
+
 def record_semantic_recovery(
     tasks_root: str | Path,
     task_id: str,

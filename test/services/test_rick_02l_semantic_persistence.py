@@ -13,6 +13,7 @@ from app.services.rick_semantic_draft import build_semantic_draft_assignments
 from app.services.rick_semantic_session_store import (
     load_semantic_batch,
     record_semantic_assessment,
+    record_semantic_failed_retry,
     record_semantic_recovery,
 )
 
@@ -112,6 +113,87 @@ def _load(root, kwargs):
 
 def _recover(root, kwargs, result):
     return record_semantic_recovery(root, "t123", **kwargs, recovery=result)
+
+
+
+def test_retry_of_failed_scene_preserves_unaffected_recovery_and_restarts(tmp_path):
+    root, _, _, kwargs, assessment, recovery = _fixture(tmp_path)
+    assessment["results"][1].update({
+        "status": "provider_or_response_failure",
+        "failure_stage": "api_request",
+        "failure_kind": "quota_or_rate_limit",
+        "verdict": "uncertain", "visual_relation": "insufficient",
+        "visible_evidence": "", "reason": "",
+    })
+    assessment["assessed"] = 1
+    _save_base(root, kwargs, assessment)
+    _recover(root, kwargs, recovery)
+    retry = deepcopy(assessment)
+    retry["results"][1].update({
+        "status": "ai_assessment_for_human_review",
+        "verdict": "uncertain", "visual_relation": "contextual",
+        "visible_evidence": "Foto de grupo", "reason": "Tema contextual",
+    })
+    retry["results"][1].pop("failure_stage", None)
+    retry["results"][1].pop("failure_kind", None)
+    retry["assessed"] = 2
+    retry["api_requests"] = 3
+    updated = record_semantic_failed_retry(
+        root, "t123", **kwargs, assessment=retry,
+    )
+    assert set(updated["history"]) == {"1"}
+    assert updated["assessment"]["assessed"] == 2
+    reopened = _load(root, kwargs)
+    assert reopened["history"]["1"]["ranking"][0]["suggested_file"] == "alternative.mp4"
+    assert reopened["assessment"]["results"][1]["status"] == "ai_assessment_for_human_review"
+    assert reopened["assessment"]["api_requests"] == 3
+    assert reopened["assessment"]["publishing_permitted"] is False
+
+
+def test_failed_retry_cannot_mutate_a_completed_scene_or_erase_history(tmp_path):
+    root, folder, _, kwargs, assessment, recovery = _fixture(tmp_path)
+    assessment["results"][1].update({
+        "status": "provider_or_response_failure",
+        "failure_stage": "api_request",
+        "verdict": "uncertain", "visual_relation": "insufficient",
+        "visible_evidence": "", "reason": "",
+    })
+    assessment["assessed"] = 1
+    _save_base(root, kwargs, assessment)
+    _recover(root, kwargs, recovery)
+    path = folder / "rick_semantic_batch_01.json"
+    existing = path.read_bytes()
+    retry = deepcopy(assessment)
+    retry["results"][0]["visible_evidence"] = "Outras imagens não revisadas"
+    retry["api_requests"] = 3
+    with pytest.raises(ValueError, match="parecer válido"):
+        record_semantic_failed_retry(root, "t123", **kwargs, assessment=retry)
+    assert path.read_bytes() == existing
+    retry["results"][0] = deepcopy(assessment["results"][0])
+    retry["results"][1]["file"] = "alternative.mp4"
+    with pytest.raises(ValueError, match="(não corresponde|mídia)"):
+        record_semantic_failed_retry(root, "t123", **kwargs, assessment=retry)
+    assert path.read_bytes() == existing
+
+
+def test_retry_without_saved_baseline_is_blocked(tmp_path):
+    root, _, _, kwargs, assessment, _ = _fixture(tmp_path)
+    with pytest.raises(ValueError, match="persistida"):
+        record_semantic_failed_retry(
+            root, "t123", **kwargs, assessment=assessment
+        )
+
+
+def test_retry_ui_keeps_existing_groups_and_skips_processed_scenes():
+    code = (
+        Path(__file__).parents[2] / "webui" / "rick_editorial_panel.py"
+    ).read_text(encoding="utf-8")
+    assert "record_semantic_failed_retry(" in code
+    assert 'st.session_state[history_key] = persisted["history"]' in code
+    assert "processed_scenes = {" in code
+    assert "if number not in processed_scenes" in code
+    assert "recovery_groups = [*processed_groups, *pending_groups]" in code
+
 
 
 def test_round_trip_reopens_both_analysis_and_alternatives(tmp_path):
