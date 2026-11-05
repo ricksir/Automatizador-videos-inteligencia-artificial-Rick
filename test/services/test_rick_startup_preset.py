@@ -11,6 +11,26 @@ from app.services.rick_startup_preset import (
 
 
 class TestRickStartupPreset(unittest.TestCase):
+    def test_saved_stroke_width_is_finite_and_within_slider_bounds(self):
+        from app.services.rick_startup_preset import seed_startup_widgets
+
+        cases = (
+            ("inf", 1.5), ("-inf", 1.5), ("nan", 1.5),
+            ("not-a-number", 1.5), (True, 1.5),
+            (float("inf"), 1.5), (-5, 0.0), (50, 10.0),
+            (2.5, 2.5),
+        )
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                session = {}
+                widgets = {}
+                seed_startup_widgets(
+                    session, lambda key, value: widgets.__setitem__(key, value),
+                    ui_config={"stroke_width": raw},
+                )
+                self.assertEqual(session["stroke_width_slider"], expected)
+                self.assertEqual(widgets["video_clip_duration_select"], 4)
+
     def test_first_run_contains_expected_safe_preferences(self):
         settings = pending_startup_settings({})
         values = {(section, name): value for section, name, value in settings}
