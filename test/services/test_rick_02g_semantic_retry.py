@@ -343,7 +343,7 @@ def test_semantic_display_never_fakes_gemini_verdict_after_api_failure():
     assert good["Relação"] == "metaphorical"
     assert good["Evidência"] == "Chamas e madeira"
 
-    assert "for row in valid_records" in source
+    assert "for r in valid_records" in source
     assert "if pending_records:" in source
     assert "Não entram na busca de" in source
     assert "if valid_records:" in source
