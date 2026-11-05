@@ -80,6 +80,19 @@ def _safe_stroke_width(value: object) -> float:
     return max(0.0, min(10.0, width))
 
 
+def _safe_saved_bool(value: object, default: bool) -> bool:
+    """Parse persisted checkboxes without treating the string 'false' as True."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
 def seed_startup_widgets(session_state, set_widget, *, ui_config=None, app_config=None):
     """Hydrate one Streamlit session from durable, whitelisted preferences.
 
@@ -96,16 +109,16 @@ def seed_startup_widgets(session_state, set_widget, *, ui_config=None, app_confi
         app.update({key: app_config[key] for key in app if key in app_config})
 
     session_state.update({
-        "rick_profile_enabled": bool(ui["rick_profile_enabled"]),
-        "avoid_repeated_materials": bool(ui["avoid_repeated_materials"]),
-        "match_materials_to_script": bool(app["match_materials_to_script"]),
-        "subtitle_enabled_checkbox": bool(ui["subtitle_enabled"]),
+        "rick_profile_enabled": _safe_saved_bool(ui["rick_profile_enabled"], True),
+        "avoid_repeated_materials": _safe_saved_bool(ui["avoid_repeated_materials"], True),
+        "match_materials_to_script": _safe_saved_bool(app["match_materials_to_script"], True),
+        "subtitle_enabled_checkbox": _safe_saved_bool(ui["subtitle_enabled"], True),
         "font_color_picker": str(ui["text_fore_color"]),
         "font_size_slider": int(ui["font_size"]),
         "stroke_color_picker": str(ui["stroke_color"]),
         "stroke_width_slider": _safe_stroke_width(ui["stroke_width"]),
-        "subtitle_background_enabled_checkbox": bool(ui["subtitle_background_enabled"]),
-        "rounded_subtitle_background_checkbox": bool(ui["rounded_subtitle_background"]),
+        "subtitle_background_enabled_checkbox": _safe_saved_bool(ui["subtitle_background_enabled"], False),
+        "rounded_subtitle_background_checkbox": _safe_saved_bool(ui["rounded_subtitle_background"], False),
     })
     session_state.pop("rick_previous_script_language", None)
     tts_server = ui["tts_server"]
