@@ -13,6 +13,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from app.config import config
+from app.services.rick_startup_preset import PRESET_MARKER, PRESET_VERSION
 from app.services import llm, loomloom
 
 MAIN = Path(__file__).parents[2] / "webui" / "Main.py"
@@ -133,7 +134,7 @@ def test_batch_script_and_video_use_settings_key_without_local_llm():
     quote = loomloom.LoomLoomQuote("q", "v", "CNY", 1, 1, "0.1", ())
     with (
         patch.object(config, "app", values),
-        patch.object(config, "ui", {}),
+        patch.object(config, "ui", {PRESET_MARKER: PRESET_VERSION}),
         patch.object(config, "try_save_config", return_value=True),
         patch.object(
             loomloom.LoomLoomVideoBackend,
@@ -182,7 +183,7 @@ def quote_page():
     )
     with ExitStack() as stack:
         stack.enter_context(patch.object(config, "app", values))
-        stack.enter_context(patch.object(config, "ui", {}))
+        stack.enter_context(patch.object(config, "ui", {PRESET_MARKER: PRESET_VERSION}))
         stack.enter_context(patch.object(config, "try_save_config", return_value=True))
         stack.enter_context(
             patch.object(
@@ -353,7 +354,9 @@ def test_batch_candidate_autofill_once_preserves_manual_count(script):
     )
     with (
         patch.object(config, "app", values),
-        patch.object(config, "ui", {"video_clip_duration": 3}),
+        patch.object(config, "ui", {
+            PRESET_MARKER: PRESET_VERSION, "video_clip_duration": 3,
+        }),
         patch.object(config, "try_save_config", return_value=True),
     ):
         app = AppTest.from_file(str(MAIN), default_timeout=30)
