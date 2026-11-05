@@ -52,6 +52,25 @@ class TestRickStartupPreset(unittest.TestCase):
                     background_expected,
                 )
 
+    def test_saved_font_size_never_breaks_subtitle_slider(self):
+        from app.services.rick_startup_preset import seed_startup_widgets
+
+        cases = (
+            ("nan", 55), ("inf", 55), ("-inf", 55),
+            ("invalid", 55), (None, 55), (True, 55),
+            (float("nan"), 55), (float("inf"), 55),
+            (-1, 30), (0, 30), (150, 100),
+            (30, 30), (100, 100), ("73", 73),
+        )
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                session = {}
+                seed_startup_widgets(
+                    session, lambda key, value: None,
+                    ui_config={"font_size": raw},
+                )
+                self.assertEqual(session["font_size_slider"], expected)
+
     def test_saved_stroke_width_is_finite_and_within_slider_bounds(self):
         from app.services.rick_startup_preset import seed_startup_widgets
 
