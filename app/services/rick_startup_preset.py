@@ -7,6 +7,7 @@ saved preferences before rendering. Later user changes are saved normally.
 
 from __future__ import annotations
 
+import math
 from typing import Mapping
 
 
@@ -66,6 +67,19 @@ def pending_startup_settings(ui_config: Mapping) -> tuple[tuple[str, str, object
     )
 
 
+def _safe_stroke_width(value: object) -> float:
+    """Validate a saved subtitle outline width before seeding Streamlit."""
+    try:
+        if isinstance(value, bool):
+            raise ValueError("boolean is not a numeric width")
+        width = float(value)
+        if not math.isfinite(width):
+            raise ValueError("non-finite width")
+    except (TypeError, ValueError, OverflowError):
+        return float(RICK_STARTUP_DEFAULTS["ui"]["stroke_width"])
+    return max(0.0, min(10.0, width))
+
+
 def seed_startup_widgets(session_state, set_widget, *, ui_config=None, app_config=None):
     """Hydrate one Streamlit session from durable, whitelisted preferences.
 
@@ -89,7 +103,7 @@ def seed_startup_widgets(session_state, set_widget, *, ui_config=None, app_confi
         "font_color_picker": str(ui["text_fore_color"]),
         "font_size_slider": int(ui["font_size"]),
         "stroke_color_picker": str(ui["stroke_color"]),
-        "stroke_width_slider": float(ui["stroke_width"]),
+        "stroke_width_slider": _safe_stroke_width(ui["stroke_width"]),
         "subtitle_background_enabled_checkbox": bool(ui["subtitle_background_enabled"]),
         "rounded_subtitle_background_checkbox": bool(ui["rounded_subtitle_background"]),
     })
