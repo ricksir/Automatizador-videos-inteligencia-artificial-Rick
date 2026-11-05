@@ -67,6 +67,17 @@ def pending_startup_settings(ui_config: Mapping) -> tuple[tuple[str, str, object
     )
 
 
+def _safe_font_size(value: object) -> int:
+    """Normalize saved subtitle font sizes to the actual Streamlit slider range."""
+    try:
+        if isinstance(value, bool):
+            raise ValueError("boolean is not a font size")
+        size = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return int(RICK_STARTUP_DEFAULTS["ui"]["font_size"])
+    return max(30, min(100, size))
+
+
 def _safe_stroke_width(value: object) -> float:
     """Validate a saved subtitle outline width before seeding Streamlit."""
     try:
@@ -114,7 +125,7 @@ def seed_startup_widgets(session_state, set_widget, *, ui_config=None, app_confi
         "match_materials_to_script": _safe_saved_bool(app["match_materials_to_script"], True),
         "subtitle_enabled_checkbox": _safe_saved_bool(ui["subtitle_enabled"], True),
         "font_color_picker": str(ui["text_fore_color"]),
-        "font_size_slider": int(ui["font_size"]),
+        "font_size_slider": _safe_font_size(ui["font_size"]),
         "stroke_color_picker": str(ui["stroke_color"]),
         "stroke_width_slider": _safe_stroke_width(ui["stroke_width"]),
         "subtitle_background_enabled_checkbox": _safe_saved_bool(ui["subtitle_background_enabled"], False),
