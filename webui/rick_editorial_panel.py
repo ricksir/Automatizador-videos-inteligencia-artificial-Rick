@@ -512,6 +512,7 @@ def render_editorial_panel(
             from app.services.rick_semantic_session_store import (
                 load_semantic_batch,
                 record_semantic_assessment,
+                record_semantic_failed_retry,
                 record_semantic_recovery,
             )
             visual_key = f"rick_ai_visual_result_{selected_id}_{first_scene}"
@@ -739,9 +740,8 @@ def render_editorial_panel(
                                     f"rick_ai_fix_result_{selected_id}_{first_scene}",
                                     None,
                                 )
-                                st.session_state.pop(history_key, None)
                                 try:
-                                    record_semantic_assessment(
+                                    persisted = record_semantic_failed_retry(
                                         tasks_root, selected_id,
                                         first_scene=first_scene,
                                         workspace=workspace, proposals=precure,
@@ -753,6 +753,7 @@ def render_editorial_panel(
                                         "mas não foi salva: " + type(exc).__name__
                                     )
                                 else:
+                                    st.session_state[history_key] = persisted["history"]
                                     st.rerun()
                 valid_records = [
                     r for r in records
@@ -861,10 +862,6 @@ def render_editorial_panel(
                     numbers_to_recover = [
                         row["scene_number"] for row in problematic
                     ]
-                    recovery_groups = [
-                        tuple(numbers_to_recover[i:i + 3])
-                        for i in range(0, len(numbers_to_recover), 3)
-                    ]
                     stored_history = st.session_state.get(history_key)
                     history = (
                         dict(stored_history)
@@ -872,13 +869,29 @@ def render_editorial_panel(
                     )
                     def group_id(group):
                         return ",".join(str(n) for n in group)
-                    pending_groups = [
-                        group for group in recovery_groups
-                        if group_id(group) not in history
+                    processed_groups = [
+                        tuple(recovery["targets"])
+                        for recovery in history.values()
+                        if isinstance(recovery, dict)
+                        and isinstance(recovery.get("targets"), list)
                     ]
+                    processed_scenes = {
+                        number for group in processed_groups for number in group
+                    }
+                    # A previously completed group may have 4,6 while failed
+                    # scenes 1,2,3,5 are retried later. Never spend again on
+                    # 4,6 simply because the freshly eligible group is 4,5,6.
+                    pending_numbers = [
+                        number for number in numbers_to_recover
+                        if number not in processed_scenes
+                    ]
+                    pending_groups = [
+                        tuple(pending_numbers[i:i + 3])
+                        for i in range(0, len(pending_numbers), 3)
+                    ]
+                    recovery_groups = [*processed_groups, *pending_groups]
                     st.caption(
-                        f"Grupos processados: "
-                        f"{len(recovery_groups) - len(pending_groups)}"
+                        f"Grupos processados: {len(processed_groups)}"
                         f"/{len(recovery_groups)}. "
                         "Um grupo processado não é sinônimo de mídia adequada."
                     )
