@@ -316,12 +316,40 @@ def test_provider_failure_stays_failure_after_restart(tmp_path):
     assessment["results"][0].update({
         "status": "provider_or_response_failure",
         "failure_stage": "api_request",
+        "failure_kind": "quota_or_rate_limit",
         "verdict": "uncertain", "visual_relation": "insufficient",
     })
     _save_base(root, kwargs, assessment)
     restored = _load(root, kwargs)
     assert restored["assessment"]["results"][0]["status"] == "provider_or_response_failure"
     assert restored["assessment"]["results"][0]["failure_stage"] == "api_request"
+    assert restored["assessment"]["results"][0]["failure_kind"] == "quota_or_rate_limit"
+
+
+def test_invalid_gemini_failure_kind_is_never_stored(tmp_path):
+    root, folder, _, kwargs, assessment, _ = _fixture(tmp_path)
+    assessment["results"][0].update({
+        "status": "provider_or_response_failure",
+        "failure_stage": "api_request",
+        "failure_kind": "SECRET_UNTRUSTED_PROVIDER_MESSAGE",
+        "verdict": "uncertain", "visual_relation": "insufficient",
+    })
+    with pytest.raises(ValueError, match="não corresponde"):
+        _save_base(root, kwargs, assessment)
+    assert not (folder / "rick_semantic_batch_01.json").exists()
+
+
+def test_old_error_without_category_remains_restorable(tmp_path):
+    root, _, _, kwargs, assessment, _ = _fixture(tmp_path)
+    assessment["results"][0].update({
+        "status": "provider_or_response_failure",
+        "failure_stage": "api_request",
+        "verdict": "uncertain", "visual_relation": "insufficient",
+    })
+    _save_base(root, kwargs, assessment)
+    row = _load(root, kwargs)["assessment"]["results"][0]
+    assert row["failure_stage"] == "api_request"
+    assert "failure_kind" not in row
 
 
 def test_invalid_and_duplicate_assessment_rows_refused(tmp_path):
