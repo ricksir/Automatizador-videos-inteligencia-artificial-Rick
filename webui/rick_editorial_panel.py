@@ -122,6 +122,33 @@ def _priority_scene_numbers(proposals: dict, total: int, *, threshold: int = 60)
     ]
 
 
+
+def _semantic_scene_display(row: dict) -> dict:
+    """Do not present an API failure's placeholder as a Gemini judgment."""
+    valid = row.get("status") == "ai_assessment_for_human_review"
+    status_labels = {
+        "provider_or_response_failure": "Falha técnica (API/resposta)",
+        "frames_unavailable": "Quadros indisponíveis",
+        "invalid_local_media": "Mídia local inválida",
+        "not_evaluated": "Não avaliada",
+    }
+    return {
+        "Cena": row["scene_number"],
+        "Arquivo": row["file"],
+        "Estado": "Avaliada" if valid else status_labels.get(
+            row.get("status"), "Avaliação não concluída"
+        ),
+        "Veredito IA": row["verdict"] if valid else "— (sem veredito)",
+        "Relação": row.get("visual_relation", "insufficient") if valid else "—",
+        "Próximo passo": (
+            row.get("recommended_action", "") if valid
+            else "Resolver pendência técnica e reavaliar"
+        ),
+        "Evidência": row.get("visible_evidence", "") if valid else "",
+        "Motivo": row.get("reason", "") if valid else "",
+    }
+
+
 def render_editorial_panel(
     tasks: Sequence[dict[str, Any]],
     state_reader: Callable[[str], dict[str, Any] | None],
@@ -727,14 +754,22 @@ def render_editorial_panel(
                                     )
                                 else:
                                     st.rerun()
+                valid_records = [
+                    r for r in records
+                    if r.get("status") == "ai_assessment_for_human_review"
+                ]
+                pending_records = [
+                    r for r in records
+                    if r.get("status") != "ai_assessment_for_human_review"
+                ]
                 direct = sum(
-                    r.get("verdict") == "plausible" and
-                    r.get("visual_relation") == "direct"
-                    for r in records
+                    r.get("verdict") == "plausible"
+                    and r.get("visual_relation") == "direct"
+                    for r in valid_records
                 )
                 metaphorical = sum(
                     r.get("visual_relation") == "metaphorical"
-                    for r in records
+                    for r in valid_records
                 )
                 st.caption(
                     f"{direct} correspondência(s) direta(s) plausível(is); "
@@ -742,19 +777,17 @@ def render_editorial_panel(
                     "Nenhuma classificação gera aprovação automática."
                 )
                 st.dataframe([
-                    {
-                        "Cena": row["scene_number"],
-                        "Arquivo": row["file"],
-                        "Veredito IA": row["verdict"],
-                        "Relação": row.get("visual_relation", "insufficient"),
-                        "Próximo passo": row.get("recommended_action", ""),
-                        "Evidência": row["visible_evidence"],
-                        "Motivo": row["reason"],
-                    }
-                    for row in records
+                    _semantic_scene_display(row) for row in records
                 ], hide_index=True, use_container_width=True)
-                if records:
-                    numbers = [r["scene_number"] for r in records]
+                if pending_records:
+                    st.info(
+                        f"{len(pending_records)} cena(s) ainda sem avaliação "
+                        "visual válida neste lote. Não entram na busca de "
+                        "alternativas nem na contagem de grupos processados. "
+                        "Resolva as falhas antes de considerar o lote concluído."
+                    )
+                if valid_records:
+                    numbers = [r["scene_number"] for r in valid_records]
                     focus = st.selectbox(
                         "Ler a análise completa da cena",
                         numbers,
@@ -762,7 +795,7 @@ def render_editorial_panel(
                         key=f"rick_ai_visual_detail_{selected_id}_{first_scene}",
                     )
                     detail = next(
-                        (r for r in records if r["scene_number"] == focus), None,
+                        (r for r in valid_records if r["scene_number"] == focus), None,
                     )
                     if detail is not None:
                         st.markdown(
@@ -780,6 +813,11 @@ def render_editorial_panel(
                                 "inspecionar_e_buscar_alternativa",
                             )
                         )
+                else:
+                    st.caption(
+                        "Nenhuma cena do lote possui ainda uma avaliação visual "
+                        "válida. Detalhes da IA aparecerão após uma resposta válida."
+                    )
                 if len(records) < len(stored.get("results", [])):
                     st.warning(
                         "Algumas propostas mudaram após a análise. "
