@@ -182,6 +182,43 @@ def test_single_explicit_retry_makes_only_one_api_call(
     assert "Cena 1:" in calls[0][0]
 
 
+@pytest.mark.parametrize("status,expected", [
+    (400, "invalid_request"),
+    (401, "credential_or_permission"),
+    (403, "credential_or_permission"),
+    (404, "model_not_found"),
+    (408, "timeout_or_connection"),
+    (422, "invalid_request"),
+    (429, "quota_or_rate_limit"),
+    (500, "provider_unavailable"),
+    (503, "provider_unavailable"),
+    (504, "timeout_or_connection"),
+    (418, "other_http_error"),
+])
+def test_api_failure_is_classified_by_numeric_status_only(status, expected):
+    class ProviderError(Exception):
+        def __init__(self):
+            self.code = status
+        def __str__(self):
+            return "secret-key-must-not-be-persisted"
+
+    assert gemini._classify_api_failure(ProviderError()) == expected
+
+
+def test_api_failure_supports_status_code_and_safe_unknown_fallback():
+    class HttpError(Exception):
+        status_code = 429
+        code = 401
+
+    class ConnectTimeout(Exception):
+        pass
+
+    assert gemini._classify_api_failure(HttpError("private URL")) == "quota_or_rate_limit"
+    assert gemini._classify_api_failure(ConnectTimeout("secret")) == "timeout_or_connection"
+    assert gemini._classify_api_failure(RuntimeError("secret")) == "unclassified_api_error"
+
+
+
 def test_failure_stage_differentiates_provider_and_invalid_response(
     tmp_path, monkeypatch,
 ):
@@ -228,6 +265,9 @@ def test_failure_stage_differentiates_provider_and_invalid_response(
         row = output["results"][0]
         assert row["status"] == "provider_or_response_failure"
         assert row["failure_stage"] == expected
+        assert row["failure_kind"] == (
+            "unclassified_api_error" if model == "raise" else "invalid_response"
+        )
         assert "fake-key" not in str(output)
         assert output["assessed"] == 0
 
@@ -241,3 +281,6 @@ def test_ui_shows_failed_as_technical_and_offers_explicit_retry():
     assert "only_scene_numbers=failed" in code
     assert "disabled=not (authorized and key_ready and model_name)" in code
     assert "merge_failed_scene_retry" in code
+    assert '"Categoria segura"' in code
+    assert "quota_or_rate_limit" in code
+    assert "Falha não classificada/anterior à atualização" in code
