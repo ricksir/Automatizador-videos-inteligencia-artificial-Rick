@@ -151,12 +151,14 @@ def test_only_whitelisted_evidence_is_saved_without_credential(tmp_path):
     assessment["results"][0]["image_b64"] = "SECRET_RAW_IMAGE"
     recovery["gemini_api_key"] = "SECRET_RECOVERY_KEY"
     recovery["compared"][0]["local_path"] = "C:/Users/private/Downloads/key"
+    recovery["compared"][0]["failure_kind"] = "SECRET_FAILURE_KIND_FROM_COMPARISON"
     _save_base(root, kwargs, assessment)
     _recover(root, kwargs, recovery)
     raw = (folder / "rick_semantic_batch_01.json").read_text(encoding="utf-8")
     for secret in (
         "SECRET_API_KEY_SHOULD_NOT_BE_SAVED", "SECRET_RAW_IMAGE",
         "SECRET_RECOVERY_KEY", "C:/Users/private/Downloads/key",
+        "SECRET_FAILURE_KIND_FROM_COMPARISON",
     ):
         assert secret not in raw
     assert '"publishing_permitted":false' in raw
